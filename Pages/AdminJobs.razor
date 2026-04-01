@@ -1,0 +1,285 @@
+﻿@page "/admin/jobs"
+@using SSM.Models
+@using SSM.Services
+@using MudBlazor
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager NavManager
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 표준 유리 효과 카드 */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 📊 데이터 테이블 투명화 스타일 */
+    .fixed-grid {
+        background: transparent !important;
+    }
+
+    .mud-table-head .mud-table-cell {
+        background-color: rgba(45, 45, 58, 0.85) !important;
+        border-bottom: 2px solid rgba(162, 155, 254, 0.3) !important;
+    }
+
+        .mud-table-head .mud-table-cell .mud-table-cell-content {
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+            text-shadow: 1px 1px 2px black;
+        }
+
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        color: #FFFFFF !important;
+        border-bottom: 4px solid rgba(15, 15, 30, 0.8) !important;
+    }
+
+    /* 🛠️ 입력창 및 버튼 테마 일치 */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-input-root-outlined {
+        background: rgba(0, 0, 0, 0.3) !important;
+        color: white !important;
+    }
+
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+    }
+
+    .btn-admin-save {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900 !important;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4) !important;
+    }
+
+    /* 직업군별 포인트 컬러 */
+    .chip-dealer {
+        background: rgba(162, 155, 254, 0.2) !important;
+        color: #A29BFE !important;
+        border: 1px solid #A29BFE !important;
+        font-weight: 900;
+    }
+
+    .chip-support {
+        background: rgba(253, 167, 223, 0.2) !important;
+        color: #FDA7DF !important;
+        border: 1px solid #FDA7DF !important;
+        font-weight: 900;
+    }
+
+    .mud-table-pagination {
+        color: #8E9AAF !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    @if (_isInitialized && AppState.IsAdmin)
+    {
+        @* 상단 헤더 *@
+        <MudPaper Class="pa-6 mb-6 d-flex align-center glass-panel" Elevation="0">
+            <MudIcon Icon="@Icons.Material.Filled.Construction" Style="color: #A29BFE; filter: drop-shadow(0 0 8px #A29BFE);" Size="Size.Large" Class="mr-4" />
+            <div>          
+                <MudText Typo="Typo.h5" Style="color: white; font-weight: 900;">직업 관리</MudText>
+            </div>
+        </MudPaper>
+
+        @* --- [1] 직업 추가 섹션 --- *@
+        <MudPaper Class="pa-8 mb-10 glass-panel" Elevation="0">
+            <MudText Typo="Typo.subtitle2" Style="color: #A29BFE; font-weight: 900;" Class="mb-6">✨ 신규 직업 마스터 등록</MudText>
+            <MudForm @bind-IsValid="@canAdd">
+                <MudGrid Spacing="3" Class="align-center">
+                    <MudItem xs="12" sm="5">
+                        <MudTextField @bind-Value="newJobName" Label="신규 직업명"
+                                      Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="예: 헌터" />
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <div class="d-flex align-center justify-center" style="height: 40px;">
+                            <MudCheckBox @bind-Value="newIsSupport" Label="버퍼" Color="Color.Secondary" Dense="true" />
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6" sm="4">
+                        <MudButton Variant="Variant.Filled" Class="btn-admin-save" FullWidth="true"
+                                   StartIcon="@Icons.Material.Filled.Add" OnClick="AddJob"
+                                   Disabled="@(!canAdd)">직업 데이터 추가</MudButton>
+                    </MudItem>
+                </MudGrid>
+            </MudForm>
+        </MudPaper>
+
+        @* --- [2] 직업 리스트 테이블 --- *@
+        <MudPaper Elevation="0" Class="glass-panel" style="overflow: hidden;">
+            <MudTable Items="@jobs" Hover="true" Elevation="0" Dense="true" Loading="@isLoading"
+                      Filter="new Func<JobMaster,bool>(FilterFunc)" FixedHeader="true" Height="600px" Class="fixed-grid">
+                <ToolBarContent>
+                    <MudText Typo="Typo.h6" Style="color:white; font-weight:900;">등록된 직업 목록</MudText>
+                    <MudSpacer />
+                    <MudTextField @bind-Value="searchString" Placeholder="직업명 검색..." Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-0" Style="max-width:300px; background:rgba(0,0,0,0.2);" />
+                </ToolBarContent>
+                <HeaderContent>
+                    <MudTh><MudTableSortLabel SortBy="new Func<JobMaster, object>(x=>x.JobName)">직업명</MudTableSortLabel></MudTh>
+                    <MudTh Style="text-align:center">포지션 설정</MudTh>
+                    <MudTh Style="text-align:center">시스템 활성</MudTh>
+                    <MudTh Style="text-align:center">관리</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="직업명"><b>@context.JobName</b></MudTd>
+
+                    <MudTd DataLabel="포지션" Style="text-align:center">
+                        <div class="d-flex align-center justify-center">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                     Class="@(context.IsSupport ? "chip-support" : "chip-dealer")">
+                                @(context.IsSupport ? "버퍼" : "딜러")
+                            </MudChip>
+                            <MudSwitch T="bool" Value="@context.IsSupport" ValueChanged="@((val) => ToggleSupport(context, val))"
+                                       Color="Color.Secondary" Class="ml-2" />
+                        </div>
+                    </MudTd>
+
+                    <MudTd DataLabel="상태" Style="text-align:center">
+                        <div class="d-flex align-center justify-center">
+                            <MudText Typo="Typo.body2" Style="@(context.IsActive ? "color:#4caf50; font-weight:900;" : "color:#ff5252;")" Class="mr-2">
+                                @(context.IsActive ? "사용 중" : "정지됨")
+                            </MudText>
+                            <MudSwitch T="bool" Value="@context.IsActive" ValueChanged="@((val) => ToggleActive(context, val))"
+                                       Color="Color.Success" />
+                        </div>
+                    </MudTd>
+
+                    <MudTd DataLabel="관리" Style="text-align:center">
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteForever" Color="Color.Error" Size="Size.Small"
+                                       OnClick="@(() => DeleteJob(context))" />
+                    </MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager InfoFormat="{first_item}-{last_item} / 전체 {all_items}" HorizontalAlignment="HorizontalAlignment.Right" />
+                </PagerContent>
+            </MudTable>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private List<JobMaster> jobs = new();
+    private bool isLoading = true;
+    private bool _isInitialized = false;
+    private bool canAdd;
+    private string searchString = "";
+    private string newJobName = "";
+    private bool newIsSupport = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AppState.IsLoggedIn) await AppState.TryRestoreLogin();
+        if (!AppState.IsAdmin) { NavManager.NavigateTo("/raids"); return; }
+        await LoadJobs();
+        _isInitialized = true;
+    }
+
+    private async Task LoadJobs()
+    {
+        try
+        {
+            isLoading = true;
+            var result = await SupaClient.From<JobMaster>()
+                                         .Order("job_name", Ordering.Ascending)
+                                         .Get();
+            jobs = result.Models;
+        }
+        catch (Exception ex) { Snackbar.Add($"데이터 로드 오류: {ex.Message}", Severity.Error); }
+        finally { isLoading = false; StateHasChanged(); }
+    }
+
+    private async Task AddJob()
+    {
+        if (string.IsNullOrWhiteSpace(newJobName)) return;
+
+        try
+        {
+            var job = new JobMaster
+                {
+                    JobName = newJobName,
+                    IsSupport = newIsSupport,
+                    IsActive = true,
+                    CreatedAt = DateTime.Now
+                };
+
+            await SupaClient.From<JobMaster>().Insert(job);
+            Snackbar.Add($"{newJobName} 직업이 추가되었습니다.", Severity.Success);
+
+            newJobName = "";
+            newIsSupport = false;
+            await LoadJobs();
+        }
+        catch (Exception ex) { Snackbar.Add($"추가 실패: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task ToggleSupport(JobMaster job, bool val)
+    {
+        job.IsSupport = val;
+        try
+        {
+            await SupaClient.From<JobMaster>()
+                            .Where(x => x.Id == job.Id)
+                            .Set(x => x.IsSupport, val)
+                            .Update();
+            Snackbar.Add($"{job.JobName} 포지션이 변경되었습니다.", Severity.Info);
+        }
+        catch (Exception ex) { Snackbar.Add($"업데이트 실패: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task ToggleActive(JobMaster job, bool val)
+    {
+        job.IsActive = val;
+        try
+        {
+            await SupaClient.From<JobMaster>()
+                            .Where(x => x.Id == job.Id)
+                            .Set(x => x.IsActive, val)
+                            .Update();
+            Snackbar.Add($"{job.JobName} 상태가 변경되었습니다.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add($"상태 변경 실패: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task DeleteJob(JobMaster job)
+    {
+        bool? confirm = await DialogService.ShowMessageBox("직업 데이터 삭제",
+            $"[{job.JobName}] 정보를 삭제하시겠습니까? 삭제 시 해당 직업을 가진 캐릭터 데이터에 오류가 발생할 수 있습니다.",
+            "삭제", "취소");
+
+        if (confirm == true)
+        {
+            try
+            {
+                await SupaClient.From<JobMaster>().Where(x => x.Id == job.Id).Delete();
+                Snackbar.Add("삭제 완료", Severity.Normal);
+                await LoadJobs();
+            }
+            catch (Exception ex) { Snackbar.Add($"삭제 오류: {ex.Message}", Severity.Error); }
+        }
+    }
+
+    private bool FilterFunc(JobMaster element) =>
+        string.IsNullOrWhiteSpace(searchString) ||
+        element.JobName.Contains(searchString, StringComparison.OrdinalIgnoreCase);
+}

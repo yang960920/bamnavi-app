@@ -1,0 +1,632 @@
+﻿@page "/characters"
+@using SSM.Models
+@using SSM.Services
+@using MudBlazor
+@using Supabase.Postgrest
+@using Supabase.Postgrest.Models
+@using Microsoft.JSInterop
+@using SSM.Shared
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client Supabase
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
+@inject HttpClient Http
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 전용 가독성 강화 유리 효과 */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 📊 데이터 그리드 스타일 */
+    .fixed-grid {
+        background: transparent !important;
+    }
+
+    .mud-table-head .mud-table-cell {
+        background-color: #2D2D3A !important;
+    }
+
+        .mud-table-head .mud-table-cell .column-header {
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            width: 100% !important;
+            position: relative !important;
+            color: #A29BFE !important;
+            padding: 0 !important;
+        }
+
+        .mud-table-head .mud-table-cell .sortable-column-header {
+            text-align: center !important;
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+            margin-right: 0 !important;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        .mud-table-head .mud-table-cell .column-options {
+            position: absolute !important;
+            right: 4px !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
+    .mud-sort-index {
+        display: none !important;
+    }
+
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.4) !important;
+        color: #FFFFFF !important;
+        border-bottom: 4px solid rgba(15, 15, 30, 1) !important;
+        text-align: center !important;
+        font-weight: 500;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .mud-table-row:hover .mud-table-cell {
+        background-color: rgba(162, 155, 254, 0.15) !important;
+    }
+
+    /* 🦋 나비 로고 */
+    .login-logo-small {
+        font-size: 2.5rem;
+        filter: sepia(1) saturate(1.5) hue-rotate(225deg) brightness(1.2) drop-shadow(0 0 10px #A29BFE);
+        display: inline-block;
+        vertical-align: middle;
+        user-select: none;
+    }
+
+    /* 입력창 및 버튼 */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-input-root-outlined {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+    }
+
+    .btn-register-night {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900 !important;
+        height: 48px;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4) !important;
+    }
+
+    .server-select-night {
+        background: rgba(162, 155, 254, 0.05) !important;
+    }
+
+    /* 직업별 포인트 컬러 */
+    .text-dealer {
+        color: #A29BFE !important;
+        font-weight: 900;
+        text-shadow: 0 0 8px rgba(162, 155, 254, 0.5);
+    }
+
+    .text-support {
+        color: #FDA7DF !important;
+        font-weight: 900;
+        text-shadow: 0 0 8px rgba(253, 167, 223, 0.5);
+    }
+
+    .chip-dealer {
+        background: rgba(162, 155, 254, 0.2) !important;
+        color: #A29BFE !important;
+        border: 1px solid #A29BFE !important;
+        font-weight: 900;
+    }
+
+    .chip-support {
+        background: rgba(253, 167, 223, 0.2) !important;
+        color: #FDA7DF !important;
+        border: 1px solid #FDA7DF !important;
+        font-weight: 900;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    @* 🚩 상단 정보 (모바일 반응형 적용: flex-column flex-sm-row) *@
+    <MudPaper Class="pa-6 mb-6 d-flex flex-column flex-sm-row align-start align-sm-center justify-space-between gap-4 glass-panel" Elevation="0">
+
+        @* 좌측: 로고 및 모험단명 *@
+        <div class="d-flex align-center gap-4">
+            <span class="login-logo-small">🦋</span>
+            <div>
+                <MudText Typo="Typo.overline" Style="color: rgba(162, 155, 254, 0.8); letter-spacing: 2px; font-weight: 900;">MY ADVENTURE</MudText>
+                <div class="d-flex align-center">
+                    <MudText Typo="Typo.h4" Style="color: white; font-weight: 900;">@AppState.CurrentAdventureName</MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Style="color: #A29BFE;" OnClick="@(() => EditAdventureName())" />
+                </div>
+            </div>
+        </div>
+
+        @* 우측: UID 및 일괄 보정 (모바일에서는 좌측정렬, PC에서는 우측정렬) *@
+        <div class="d-flex flex-column align-start align-sm-end">
+            <MudText Typo="Typo.caption" Style="color: #8E9AAF; font-weight: 900;" Class="mb-2">UID: @AppState.CurrentUserId</MudText>
+
+            @* 일괄 서버 변경 UI 묶음 (아주 작은 폰에서도 안 깨지게 flex-wrap 추가) *@
+            <div class="d-flex flex-wrap align-center gap-2">
+                <MudSelect T="string" @bind-Value="bulkUpdateServer" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="width: 130px; background: rgba(0,0,0,0.3); color: white;">
+                    @foreach (var server in Character.ServerList)
+                    {
+                        <MudSelectItem Value="@server.Key">@server.Value</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Autorenew" OnClick="BulkUpdateServer"
+                           Style="border-color: rgba(162,155,254,0.5); color: #A29BFE; height: 40px; white-space: nowrap;">
+                    일괄 보정
+                </MudButton>
+                <MudButton Variant="Variant.Filled" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Sync" OnClick="SyncFromDundam"
+                           Disabled="@isDundamSyncing"
+                           Style="background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: white; font-weight: 900; height: 40px; white-space: nowrap;">
+                    @if (isDundamSyncing)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Style="color: white; margin-right: 8px;" />
+                        @($"던담 연동 중... ({dundamSyncProgress}/{dundamSyncTotal})")
+                    }
+                    else
+                    {
+                        @("던담 연동")
+                    }
+                </MudButton>
+            </div>
+        </div>
+    </MudPaper>
+
+    @* 등록 섹션 *@
+    <MudPaper Class="pa-6 mb-6 glass-panel" Elevation="0">
+        <MudText Typo="Typo.subtitle1" Style="color: #A29BFE; font-weight: 900; letter-spacing: 1px;" Class="mb-4">✨ 신규 캐릭터 등록</MudText>
+        <MudForm @bind-IsValid="@success">
+            <MudGrid Spacing="3" Class="align-center">
+                @* 서버 선택 (신규 등록 전용) *@
+                <MudItem xs="12" sm="2">
+                    <MudSelect T="string" Label="서버" @bind-Value="inputServer" Variant="Variant.Outlined" Margin="Margin.Dense" Class="server-select-night">
+                        @foreach (var server in Character.ServerList)
+                        {
+                            <MudSelectItem Value="@server.Key">@server.Value</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="3">
+                    <MudTextField @bind-Value="inputName" Label="캐릭터명" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+
+                <MudItem xs="12" sm="2">
+                    <MudAutocomplete T="JobMaster" Label="직업 검색"
+                                     Value="selectedJob" ValueChanged="OnJobChanged"
+                                     SearchFunc="@SearchJobs" ToStringFunc="@(j => j?.JobName)"
+                                     Required="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Dense="true" ResetValueOnEmptyText="true"
+                                     AdornmentIcon="@Icons.Material.Filled.Search" AdornmentColor="Color.Primary" MaxItems="null" />
+                </MudItem>
+
+                @if (selectedJob?.IsSupport == true)
+                {
+                    <MudItem xs="12" sm="3">
+                        <MudNumericField @bind-Value="inputSpec" Label="버프력 입력" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" Class="text-support" />
+                    </MudItem>
+                }
+                else
+                {
+                    <MudItem xs="12" sm="3">
+                        <div class="d-flex gap-2">
+                            <MudNumericField @bind-Value="inputEok" Label="딜(억)" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" Adornment="Adornment.End" AdornmentText="억" />
+                            <MudNumericField @bind-Value="inputMan" Label="딜(만)" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" Adornment="Adornment.End" AdornmentText="만" />
+                        </div>
+                    </MudItem>
+                }
+
+                <MudItem xs="12" sm="2">
+                    <MudButton Variant="Variant.Filled" Class="btn-register-night" FullWidth="true" OnClick="AddCharacter"
+                               Disabled="@(!success || selectedJob == null)">등록하기</MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudForm>
+    </MudPaper>
+
+    @* 데이터 그리드 *@
+    <MudDataGrid Items="@characterList" ReadOnly="true" SortMode="SortMode.Single" CanCancelSort="false"
+                 Hover="true" Elevation="0" Dense="true" ShowColumnOptions="false" Class="fixed-grid">
+        <Columns>
+            <TemplateColumn Title="서버" HeaderStyle="width: 10%">
+                <CellTemplate>
+                    <MudText Typo="Typo.body2" Style="color: rgba(255,255,255,0.6); font-weight: 700;">@context.Item.ServerName</MudText>
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.Char_name" Title="캐릭터명" HeaderStyle="width: 20%" />
+            <PropertyColumn Property="x => x.Job" Title="직업" HeaderStyle="width: 20%" />
+            <TemplateColumn Title="스펙" SortBy="@(x => x.Spec ?? 0)" Sortable="true" HeaderStyle="width: 20%">
+                <CellTemplate>
+                    @if (context.Item.Is_Support)
+                    {
+                        <span class="text-support">@(context.Item.Spec.GetValueOrDefault().ToString("N0"))</span>
+                    }
+                    else
+                    {
+                        <span class="text-dealer">@FormatDamage(context.Item.Spec ?? 0)</span>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.Is_Support" Title="구분" HeaderStyle="width: 15%">
+                <CellTemplate>
+                    <div class="d-flex justify-center">
+                        <MudChip T="string" Class="@(context.Item.Is_Support ? "chip-support" : "chip-dealer")" Size="Size.Small" Variant="Variant.Filled">
+                            @(context.Item.Is_Support ? "버퍼" : "딜러")
+                        </MudChip>
+                    </div>
+                </CellTemplate>
+            </PropertyColumn>
+            <TemplateColumn Title="관리" Sortable="false" HeaderStyle="width: 15%">
+                <CellTemplate>
+                    <div class="d-flex justify-center">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Style="color: #A29BFE;" OnClick="@(() => OpenEditDialog(context.Item))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteCharacter(context.Item))" />
+                    </div>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<Character> characterList = new();
+    private List<JobMaster> jobMasterList = new();
+    private JobMaster? selectedJob;
+    bool success;
+
+    // 🚩 서버 상태 변수 분리
+    string inputServer = "cain";       // 신규 등록 폼용
+    string bulkUpdateServer = "cain";  // 일괄 업데이트 버튼용
+
+    string inputName = "";
+    double? inputSpec = null;
+    long inputEok;
+    long inputMan;
+
+    // 던담 연동 상태
+    bool isDundamSyncing = false;
+    int dundamSyncProgress = 0;
+    int dundamSyncTotal = 0;
+
+    // 던담 스크래핑 API URL (로컬: http://localhost:3000, 배포: Vercel URL로 변경)
+    private const string DUNDAM_API_URL = "https://dundam-scraper.vercel.app";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadJobs();
+        await LoadCharacters();
+    }
+
+    private async Task LoadJobs()
+    {
+        var result = await Supabase.From<JobMaster>().Where(x => x.IsActive == true).Order("job_name", Ordering.Ascending).Get();
+        jobMasterList = result.Models;
+    }
+
+    private async Task LoadCharacters()
+    {
+        if (AppState.CurrentUserId == 0) return;
+        var result = await Supabase.From<Character>().Where(x => x.AdventureId == AppState.CurrentUserId).Order("Char_name", Ordering.Ascending).Get();
+        characterList = result.Models;
+        StateHasChanged();
+    }
+
+    private async Task AddCharacter()
+    {
+        if (AppState.CurrentUserId == 0 || selectedJob == null) return;
+        try
+        {
+            double finalSpec = selectedJob.IsSupport ? (inputSpec ?? 0) : (inputEok * 100000000 + inputMan * 10000);
+            var newChar = new Character
+            {
+                AdventureId = AppState.CurrentUserId,
+                ServerId = inputServer,
+                Char_name = inputName,
+                Job = selectedJob.JobName,
+                Spec = finalSpec,
+                Is_Support = selectedJob.IsSupport,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await Supabase.From<Character>().Insert(newChar);
+
+            await DialogService.ShowMessageBox("등록 완료", $"[{inputName}] 캐릭터가 성공적으로 등록되었습니다.", "확인");
+
+            inputName = ""; selectedJob = null; inputSpec = null; inputEok = 0; inputMan = 0;
+
+            await LoadCharacters();
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("23505") || ex.Message.Contains("unique"))
+            {
+                await DialogService.ShowMessageBox("등록 실패", $"[{Character.GetServerName(inputServer)}] 서버에 '{inputName}'(은)는 이미 등록된 캐릭터입니다.", "확인");
+            }
+            else
+            {
+                await DialogService.ShowMessageBox("오류", ex.Message, "확인");
+            }
+        }
+    }
+
+    // 🚩 일괄 변경 로직
+    private async Task BulkUpdateServer()
+    {
+        string targetServerName = Character.GetServerName(bulkUpdateServer);
+        bool? confirm = await DialogService.ShowMessageBox("서버 일괄 보정",
+                (MarkupString)$"현재 등록된 모든 캐릭터의 서버를 일괄적으로 [{targetServerName}](으)로 변경하시겠습니까?<br /><br /><span style='color: #FDA7DF; font-weight: bold;'>(주의: 모든 캐릭터의 서버가 동일하게 변경됩니다!)</span>",
+                yesText: "변경 실행", cancelText: "취소");
+
+        if (confirm == true)
+        {
+            try
+            {
+                await Supabase.From<Character>()
+                    .Where(x => x.AdventureId == AppState.CurrentUserId)
+                    .Set(x => x.ServerId, bulkUpdateServer)
+                    .Update();
+
+                await DialogService.ShowMessageBox("보정 완료", $"전체 캐릭터가 {targetServerName} 서버로 보정되었습니다.", "확인");
+                await LoadCharacters();
+            }
+            catch (Exception ex)
+            {
+                await DialogService.ShowMessageBox("업데이트 오류", ex.Message, "확인");
+            }
+        }
+    }
+
+    private async Task OpenEditDialog(Character item)
+    {
+        var parameters = new DialogParameters { ["Character"] = item };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CharacterEditDialog>("캐릭터 정보 수정", parameters, options);
+        var result = await dialog.Result;
+        if (!result.Canceled) await LoadCharacters();
+    }
+
+    private async Task DeleteCharacter(Character item)
+    {
+        bool? confirm = await DialogService.ShowMessageBox("삭제 확인", $"[{item.Char_name}] 캐릭터를 삭제하시겠습니까?", yesText: "삭제", cancelText: "취소");
+        if (confirm == true)
+        {
+            await Supabase.From<Character>().Where(x => x.Id == item.Id).Delete();
+            await DialogService.ShowMessageBox("삭제 완료", "캐릭터가 삭제되었습니다.", "확인");
+            await LoadCharacters();
+        }
+    }
+
+    private async Task EditAdventureName()
+    {
+        var parameters = new DialogParameters { ["CurrentName"] = AppState.CurrentAdventureName };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false };
+        var dialog = await DialogService.ShowAsync<ChangeNameDialog>("모험단명 변경", parameters, options);
+        var result = await dialog.Result;
+        if (!result.Canceled && result.Data != null)
+        {
+            AppState.UpdateAdventureName(result.Data.ToString());
+            await AppState.PersistLogin();
+            StateHasChanged();
+        }
+    }
+
+    private async Task<IEnumerable<JobMaster>> SearchJobs(string value, CancellationToken token)
+    {
+        if (string.IsNullOrEmpty(value)) return jobMasterList;
+        return jobMasterList.Where(x => x.JobName.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private void OnJobChanged(JobMaster job) { selectedJob = job; inputSpec = null; inputEok = 0; inputMan = 0; }
+
+    private string FormatDamage(double value)
+    {
+        long damage = (long)value; long eok = damage / 100000000; long man = (damage % 100000000) / 10000;
+        if (eok > 0 && man > 0) return $"{eok}억 {man}만"; if (eok > 0) return $"{eok}억"; return $"{man}만";
+    }
+
+    // 던담 연동: 모험단명으로 검색하여 캐릭터 스펙 자동 업데이트
+    private async Task SyncFromDundam()
+    {
+        if (isDundamSyncing || AppState.CurrentUserId == 0) return;
+
+        var adventureName = AppState.CurrentAdventureName;
+        if (string.IsNullOrWhiteSpace(adventureName))
+        {
+            await DialogService.ShowMessageBox("연동 실패", "모험단명이 설정되어 있지 않습니다.", "확인");
+            return;
+        }
+
+        isDundamSyncing = true;
+        dundamSyncProgress = 0;
+        dundamSyncTotal = 0;
+        StateHasChanged();
+
+        try
+        {
+            var apiUrl = $"{DUNDAM_API_URL}/api/adventure?name={Uri.EscapeDataString(adventureName)}";
+            var response = await Http.GetAsync(apiUrl);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await DialogService.ShowMessageBox("연동 실패", $"던담 API 호출 실패: {response.StatusCode}", "확인");
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var dundamResult = Newtonsoft.Json.JsonConvert.DeserializeObject<DundamResponse>(json);
+
+            if (dundamResult == null || !dundamResult.Success || dundamResult.Characters == null)
+            {
+                await DialogService.ShowMessageBox("연동 실패", "던담에서 데이터를 가져올 수 없습니다.", "확인");
+                return;
+            }
+
+            dundamSyncTotal = characterList.Count;
+            int updatedCount = 0;
+            int newCount = 0;
+
+            foreach (var dundamChar in dundamResult.Characters)
+            {
+                if (string.IsNullOrEmpty(dundamChar.CharName)) continue;
+
+                // 기존 캐릭터 매칭 (캐릭터명 기준)
+                var existing = characterList.FirstOrDefault(c =>
+                    c.Char_name.Equals(dundamChar.CharName, StringComparison.OrdinalIgnoreCase));
+
+                double newSpec = dundamChar.IsSupport
+                    ? (dundamChar.BuffScore ?? 0)
+                    : (dundamChar.Damage ?? 0);
+
+                if (existing != null)
+                {
+                    // 기존 캐릭터 스펙 업데이트
+                    if (newSpec > 0)
+                    {
+                        await Supabase.From<Character>()
+                            .Where(x => x.Id == existing.Id)
+                            .Set(x => x.Spec, newSpec)
+                            .Set(x => x.Is_Support, dundamChar.IsSupport)
+                            .Set(x => x.Job, string.IsNullOrEmpty(dundamChar.Job) ? existing.Job : dundamChar.Job)
+                            .Set(x => x.UpdatedAt, DateTime.UtcNow)
+                            .Update();
+                        updatedCount++;
+                    }
+                }
+                else
+                {
+                    // 던담에는 있지만 DB에 없는 캐릭터 → 자동 등록
+                    var serverIdMapped = MapServerNameToId(dundamChar.Server);
+                    var newChar = new Character
+                    {
+                        AdventureId = AppState.CurrentUserId,
+                        ServerId = serverIdMapped,
+                        Char_name = dundamChar.CharName,
+                        Job = dundamChar.Job ?? "",
+                        Spec = newSpec,
+                        Is_Support = dundamChar.IsSupport,
+                        DfCharId = dundamChar.CharacterId,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+
+                    try
+                    {
+                        await Supabase.From<Character>().Insert(newChar);
+                        newCount++;
+                    }
+                    catch { /* 중복 등 무시 */ }
+                }
+
+                dundamSyncProgress++;
+                StateHasChanged();
+            }
+
+            await LoadCharacters();
+
+            await DialogService.ShowMessageBox("던담 연동 완료",
+                $"던담에서 {dundamResult.Characters.Count}개 캐릭터를 조회했습니다.\n" +
+                $"- 스펙 업데이트: {updatedCount}개\n" +
+                $"- 신규 등록: {newCount}개", "확인");
+        }
+        catch (HttpRequestException)
+        {
+            await DialogService.ShowMessageBox("연동 실패",
+                "던담 스크래핑 서버에 연결할 수 없습니다.\n로컬 서버가 실행 중인지 확인해주세요.\n(dundam-scraper 폴더에서 'npx vercel dev' 실행)", "확인");
+        }
+        catch (Exception ex)
+        {
+            await DialogService.ShowMessageBox("연동 오류", ex.Message, "확인");
+        }
+        finally
+        {
+            isDundamSyncing = false;
+            StateHasChanged();
+        }
+    }
+
+    // 던담 서버명(한글) → 서버 ID 변환
+    private string MapServerNameToId(string serverName) => serverName switch
+    {
+        "카인" => "cain",
+        "바칼" => "bakal",
+        "시로코" => "siroco",
+        "프레이" => "prey",
+        "힐더" => "hilder",
+        "카시야스" => "casillas",
+        "디레지에" => "diregie",
+        "안톤" => "anton",
+        _ => "cain"
+    };
+
+    // 던담 API 응답 모델
+    private class DundamResponse
+    {
+        [Newtonsoft.Json.JsonProperty("success")]
+        public bool Success { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("adventureName")]
+        public string? AdventureName { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("count")]
+        public int Count { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("characters")]
+        public List<DundamCharacter>? Characters { get; set; }
+    }
+
+    private class DundamCharacter
+    {
+        [Newtonsoft.Json.JsonProperty("charName")]
+        public string? CharName { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("server")]
+        public string? Server { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("serverId")]
+        public string? ServerId { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("characterId")]
+        public string? CharacterId { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("job")]
+        public string? Job { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("adventure")]
+        public string? Adventure { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("fame")]
+        public int Fame { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("isSupport")]
+        public bool IsSupport { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("damage")]
+        public double? Damage { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("buffScore")]
+        public double? BuffScore { get; set; }
+    }
+}

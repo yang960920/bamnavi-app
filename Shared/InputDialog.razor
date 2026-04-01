@@ -1,0 +1,32 @@
+﻿@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-3">@Message</MudText>
+        <MudTextField @bind-Value="Value"
+                      Label="입력"
+                      Variant="Variant.Outlined"
+                      OnKeyDown="OnKeyDown"
+                      AutoFocus="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">취소</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">확인</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    // [수정] MudDialogInstance -> IMudDialogInstance 로 변경
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public string Message { get; set; }
+    [Parameter] public string Value { get; set; }
+
+    void Submit() => MudDialog.Close(DialogResult.Ok(Value));
+    void Cancel() => MudDialog.Cancel();
+
+    void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") Submit();
+    }
+}

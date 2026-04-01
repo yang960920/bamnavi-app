@@ -1,0 +1,258 @@
+﻿@page "/admin/notices"
+@using SSM.Models
+@using SSM.Services
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject ISnackbar Snackbar
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 전용 가독성 강화 유리 효과 */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .fixed-grid {
+        background: transparent !important;
+    }
+
+    .mud-table-head .mud-table-cell {
+        background-color: rgba(45, 45, 58, 0.85) !important;
+        border-bottom: 2px solid rgba(162, 155, 254, 0.3) !important;
+    }
+
+        .mud-table-head .mud-table-cell .mud-table-cell-content {
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+            text-shadow: 1px 1px 2px black;
+            justify-content: center;
+        }
+
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        color: #FFFFFF !important;
+        border-bottom: 4px solid rgba(15, 15, 30, 0.8) !important;
+        text-align: center !important;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .mud-table-row:hover .mud-table-cell {
+        background-color: rgba(162, 155, 254, 0.15) !important;
+    }
+
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-input-root-outlined {
+        background: rgba(0, 0, 0, 0.3) !important;
+        color: white !important;
+    }
+
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+    }
+
+    .btn-save-night {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900 !important;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4) !important;
+    }
+
+    .text-urgent {
+        color: #FF6B6B !important;
+        font-weight: 900;
+    }
+
+    .text-dim {
+        color: rgba(255, 255, 255, 0.5) !important;
+        font-size: 0.8rem;
+    }
+
+    .mud-tooltip {
+        white-space: pre-wrap !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-6">
+    <MudPaper Class="pa-6 mb-6 d-flex align-center glass-panel" Elevation="0">
+        <MudIcon Icon="@Icons.Material.Filled.AdminPanelSettings" Style="color: #A29BFE; filter: drop-shadow(0 0 8px #A29BFE);" Size="Size.Large" Class="mr-4" />
+        <MudText Typo="Typo.h5" Style="color: white; font-weight: 900;">공지사항 관리</MudText>
+    </MudPaper>
+
+    @* --- [1] 공지 등록/수정 섹션 (UI 전환 방식 적용) --- *@
+    <MudPaper Class="pa-8 mb-8 glass-panel" Elevation="0" Style="@(isEditMode ? "border-top: 6px solid #ff9800;" : "")">
+        <MudText Typo="Typo.subtitle2" Style="color: #A29BFE; font-weight: 900;" Class="mb-6">
+            @(isEditMode ? "🛠️ 공지 정보 수정 모드" : "✨ 신규 공지사항 등록")
+        </MudText>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="9">
+                <MudTextField @bind-Value="inputTitle" Label="공지 제목" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudNumericField @bind-Value="inputPriority" Label="출력 순서" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" HelperText="중요는 0 입력" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="inputContent" Label="공지 상세 내용" Variant="Variant.Outlined" Lines="4" />
+            </MudItem>
+            <MudItem xs="12" Class="d-flex justify-end gap-2">
+                @if (isEditMode)
+                {
+                    <MudButton Variant="Variant.Text" Style="color:white;" OnClick="CancelEdit">취소</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" Class="px-8" OnClick="UpdateNotice">수정 완료</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Class="btn-save-night px-8" OnClick="AddNotice">공지 등록하기</MudButton>
+                }
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @* --- [2] 공지 목록 테이블 --- *@
+    <MudPaper Elevation="0" Class="glass-panel" style="overflow: hidden;">
+        <MudTable Items="@notices" Dense="true" Hover="true" Bordered="false" Elevation="0" Class="fixed-grid">
+            <HeaderContent>
+                <MudTh Style="width:80px; text-align:center;">순서</MudTh>
+                <MudTh Style="width:35%; text-align:center;">공지 제목</MudTh>
+                <MudTh Style="text-align:center;">내용 요약</MudTh>
+                <MudTh Style="width:100px; text-align:center;">상태</MudTh>
+                <MudTh Style="width:120px; text-align:center;">관리</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="순서">@context.Priority</MudTd>
+                <MudTd DataLabel="제목" Style="text-align: left !important;">
+                    <div class="d-flex align-center">
+                        @if (context.Priority == 0)
+                        {
+                            <MudChip T="string" Color="Color.Error" Size="Size.Small" Variant="Variant.Filled" Class="mr-2">중요</MudChip>
+                        }
+                        <MudText Typo="Typo.body2" Style="font-weight: 800;">@context.Title</MudText>
+                    </div>
+                </MudTd>
+                <MudTd DataLabel="내용 요약">
+                    <MudTooltip Text="@context.Content" Arrow="true" Placement="Placement.Top">
+                        <div style="cursor: help;">
+                            <MudText Typo="Typo.caption" Class="text-dim">
+                                @(context.Content.Length > 25 ? context.Content.Substring(0, 25) + "..." : context.Content)
+                            </MudText>
+                        </div>
+                    </MudTooltip>
+                </MudTd>
+                <MudTd DataLabel="상태">
+                    <MudSwitch T="bool" Value="@context.IsActive" ValueChanged="@((val) => ToggleActive(context, val))" Color="Color.Success" />
+                </MudTd>
+                <MudTd DataLabel="관리">
+                    <div class="d-flex justify-center gap-1">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Warning" Size="Size.Small" OnClick="@(() => PrepareEdit(context))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteForever" Color="Color.Error" Size="Size.Small" OnClick="@(() => DeleteNotice(context))" />
+                    </div>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private List<Notice> notices = new();
+    private string inputTitle = "";
+    private string inputContent = "";
+    private int inputPriority = 1;
+
+    private bool isEditMode = false;
+    private int editingNoticeId = 0;
+
+    protected override async Task OnInitializedAsync() => await LoadNotices();
+
+    private async Task LoadNotices()
+    {
+        var res = await SupaClient.From<Notice>().Order("priority", Ordering.Ascending).Order("created_at", Ordering.Descending).Get();
+        notices = res.Models;
+        StateHasChanged();
+    }
+
+    /* 🛠️ 수정 모드 진입 */
+    private void PrepareEdit(Notice n)
+    {
+        isEditMode = true;
+        editingNoticeId = n.Id;
+        inputTitle = n.Title;
+        inputContent = n.Content;
+        inputPriority = n.Priority;
+        JSRuntime.InvokeVoidAsync("window.scrollTo", 0, 0); // 상단으로 스크롤
+    }
+
+    private void CancelEdit()
+    {
+        isEditMode = false;
+        editingNoticeId = 0;
+        inputTitle = ""; inputContent = ""; inputPriority = 1;
+    }
+
+    /* 🛠️ 수정 실행 */
+    private async Task UpdateNotice()
+    {
+        if (string.IsNullOrWhiteSpace(inputTitle)) return;
+
+        var target = notices.FirstOrDefault(x => x.Id == editingNoticeId);
+        if (target != null)
+        {
+            target.Title = inputTitle;
+            target.Content = inputContent;
+            target.Priority = inputPriority;
+
+            await SupaClient.From<Notice>().Where(x => x.Id == target.Id).Update(target);
+            Snackbar.Add("공지사항이 수정되었습니다.", Severity.Success);
+            AppState.NotifyNoticeChanged();
+            CancelEdit();
+            await LoadNotices();
+        }
+    }
+
+    private async Task AddNotice()
+    {
+        if (string.IsNullOrWhiteSpace(inputTitle) || string.IsNullOrWhiteSpace(inputContent))
+        {
+            Snackbar.Add("제목과 내용을 입력해주세요.", Severity.Warning);
+            return;
+        }
+
+        await SupaClient.From<Notice>().Insert(new Notice { Title = inputTitle, Content = inputContent, Priority = inputPriority, IsActive = true });
+        inputTitle = ""; inputContent = ""; inputPriority = 1;
+        await LoadNotices();
+        AppState.NotifyNoticeChanged();
+        Snackbar.Add("신규 공지가 등록되었습니다.", Severity.Success);
+    }
+
+    private async Task ToggleActive(Notice n, bool val)
+    {
+        n.IsActive = val;
+        await SupaClient.From<Notice>().Where(x => x.Id == n.Id).Update(n);
+        await LoadNotices();
+        AppState.NotifyNoticeChanged();
+    }
+
+    private async Task DeleteNotice(Notice n)
+    {
+        if (!(await DialogService.ShowMessageBox("삭제 확인", $"[{n.Title}] 삭제하시겠습니까?", "삭제", "취소") == true)) return;
+        await SupaClient.From<Notice>().Where(x => x.Id == n.Id).Delete();
+        await LoadNotices();
+        AppState.NotifyNoticeChanged();
+        Snackbar.Add("공지가 삭제되었습니다.", Severity.Info);
+    }
+}

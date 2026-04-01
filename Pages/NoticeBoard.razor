@@ -1,0 +1,166 @@
+﻿@page "/notices"
+@using SSM.Models
+@inject Supabase.Client SupaClient
+
+<style>
+
+    /* 🚩 밤나비 전용 유리 효과 패널 (가독성 강화 버전) */
+        .glass-notice-panel {
+
+        /* 배경 불투명도를 높여 뒷배경 간섭 차단 */
+                background: rgba(15, 15, 30, 0.7) !important;
+
+        /* 블러 강도를 25px로 올려 글자가 선명하게 뜨도록 조절 */
+                backdrop-filter: blur(25px) saturate(150%);
+                -webkit-backdrop-filter: blur(25px) saturate(150%);
+                border: 1px solid rgba(162, 155, 254, 0.2) !important;
+                border-radius: 16px !important;
+                color: white !important;
+
+    }
+
+
+    /* 중요 공지 좌측 강조선 및 네온 글로우 */
+        .urgent-panel {
+                border-left: 5px solid #A29BFE !important;
+                box-shadow: 0 0 25px rgba(162, 155, 254, 0.3);
+                background: rgba(20, 20, 45, 0.8) !important;
+
+    }
+
+
+    /* 공지 본문 영역 스타일 */
+        .notice-content-area {
+                background: rgba(0, 0, 0, 0.4) !important; /* 본문 영역을 더 어둡게 눌러 가독성 확보 */
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+
+    }
+
+        .notice-body {
+                white-space: pre-wrap;
+                line-height: 1.8;
+                font-size: 1rem;
+                color: #FFFFFF;
+
+        /* 어두운 배경에서 글자가 묻히지 않게 쉐도우 추가 */
+                text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+
+    }
+
+        .notice-date {
+                color: #8E9AAF !important;
+                font-weight: 500;
+
+    }
+
+
+    /* 중요 뱃지 그라데이션 및 애니메이션 */
+        .important-badge {
+                background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+                color: white !important;
+                font-weight: 900 !important;
+                box-shadow: 0 0 10px rgba(108, 92, 231, 0.5);
+
+    }
+
+        .animate-pulse-night {
+                animation: soft-pulse 2s infinite ease-in-out;
+
+    }
+
+
+    /* Razor 문법 오류 방지를 위해 @@ 사용 */
+        @@keyframes soft-pulse {
+                0%, 100%
+
+    {
+                    opacity: 1;
+                    transform: scale(1);
+
+    }
+
+            50% {
+                    opacity: 0.85;
+                    transform: scale(1.03);
+
+    }
+
+
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-8">
+    <div class="d-flex align-center mb-10">
+        <MudIcon Icon="@Icons.Material.Filled.Assignment" Style="color: #A29BFE;" Class="mr-4" Size="Size.Large" />
+        <MudText Typo="Typo.h4" Style="color: white; font-weight: 900; letter-spacing: 2px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">통합 공지사항</MudText>
+    </div>
+
+    @if (notices == null || !notices.Any())
+    {
+        <div class="glass-notice-panel d-flex flex-column align-center py-16" style="border-style: dashed !important;">
+            <MudIcon Icon="@Icons.Material.Filled.HourglassEmpty" Style="color: rgba(255,255,255,0.1);" Size="Size.Large" />
+            <MudText Style="color: rgba(255,255,255,0.2);" Class="mt-4">등록된 공지사항이 없습니다.</MudText>
+        </div>
+    }
+    else
+    {
+        <MudExpansionPanels MultiExpansion="true">
+            @foreach (var notice in notices)
+            {
+                <MudExpansionPanel Class="@(notice.Priority == 0 ? "glass-notice-panel urgent-panel mb-5" : "glass-notice-panel mb-5")">
+                    <TitleContent>
+                        <div class="d-flex align-center w-100 pr-4">
+                            @if (notice.Priority == 0)
+                            {
+                                <MudChip T="string" Class="important-badge animate-pulse-night mr-3" Size="Size.Small" Variant="Variant.Filled">중요</MudChip>
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.FiberManualRecord" Style="color: #A29BFE; font-size: 10px;" Class="mr-4 ml-1" />
+                            }
+                            <MudText Style="color: white; font-weight: 900; font-size: 1.1rem;">@notice.Title</MudText>
+                            <MudSpacer />
+                            <div class="d-flex align-center">
+                                <MudIcon Icon="@Icons.Material.Filled.AccessTime" Size="Size.Small" Style="color: #8E9AAF;" Class="mr-1" />
+                                <MudText Typo="Typo.caption" Class="notice-date">@notice.CreatedAt.ToString("yyyy. MM. dd")</MudText>
+                            </div>
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudPaper Elevation="0" Class="pa-8 notice-content-area mt-2">
+                            <div class="notice-body">
+                                @notice.Content
+                            </div>
+                        </MudPaper>
+                        <div class="d-flex justify-end mt-4 px-2">
+                            <MudText Typo="Typo.caption" Style="color: rgba(162, 155, 254, 0.5);">Night Butterfly Support System</MudText>
+                        </div>
+                    </ChildContent>
+                </MudExpansionPanel>
+            }
+        </MudExpansionPanels>
+    }
+</MudContainer>
+
+@code {
+    private List<Notice> notices = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var res = await SupaClient.From<Notice>()
+                         .Where(x => x.IsActive == true)
+                         .Order("priority", Supabase.Postgrest.Constants.Ordering.Ascending)
+                         .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending)
+                         .Get();
+            notices = res.Models;
+        }
+        catch
+        {
+            notices = new();
+        }
+    }
+}
+

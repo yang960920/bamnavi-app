@@ -1,0 +1,294 @@
+﻿@page "/my-raids"
+@using SSM.Models
+@using SSM.Shared
+@using SSM.Services
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState Appstate
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 12px !important;
+        color: white !important;
+    }
+
+    /* 공대 상태별 카드 보더 색상 (기존 페이지와 통일) */
+    .card-open {
+        border: 2px solid #A29BFE !important;
+        box-shadow: 0 0 20px rgba(162, 155, 254, 0.2);
+    }
+
+    .card-closed {
+        border: 2px solid #FDA7DF !important;
+        box-shadow: 0 0 20px rgba(253, 167, 223, 0.2);
+    }
+
+    .raid-status-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: 900;
+        font-size: 0.7rem;
+        flex-shrink: 0;
+    }
+
+    .status-open {
+        background: rgba(162, 155, 254, 0.15);
+        color: #A29BFE;
+        border: 1px solid rgba(162, 155, 254, 0.4);
+    }
+
+    .status-closed {
+        background: rgba(253, 167, 223, 0.15);
+        color: #FDA7DF;
+        border: 1px solid rgba(253, 167, 223, 0.4);
+    }
+
+    /* 내 캐릭터 정보 행 */
+    .my-char-row {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 10px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .status-tag {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: 900;
+        flex-shrink: 0;
+    }
+
+    .tag-waiting {
+        background: rgba(255, 209, 102, 0.15);
+        color: #FFD166;
+        border: 1px solid rgba(255, 209, 102, 0.5);
+    }
+
+    .tag-confirmed {
+        background: rgba(162, 155, 254, 0.2);
+        color: #A29BFE;
+        border: 1px solid #A29BFE;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        margin-top: 24px;
+    }
+
+    .section-line {
+        height: 1px;
+        flex-grow: 1;
+        background: linear-gradient(90deg, rgba(162, 155, 254, 0.5) 0%, transparent 100%);
+    }
+
+    /* 🚩 레이드 설명 박스 디자인 개선 */
+    .desc-box-middle {
+        margin-top: 4px;
+        margin-bottom: 16px;
+        padding: 10px 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        border-left: 3px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .description-text {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 0.8rem;
+        line-height: 1.5;
+        white-space: pre-line;
+    }
+
+    /* 🚩 PC와 모바일 버튼 크기 대응 */
+    .btn-responsive {
+        width: 100% !important; /* 기본(모바일): 가로 꽉 차게 */
+        white-space: nowrap !important;
+        font-weight: 900 !important;
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+    }
+
+    @@media (min-width: 600px) {
+        .btn-responsive {
+            width: 160px !important; /* PC(sm 이상): 고정 너비 */
+            height: 40px !important;
+        }
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    @* 헤더 영역: 모바일 세로, PC 가로 배치 *@
+    <div class="d-flex flex-column flex-sm-row align-start align-sm-center justify-space-between mb-8 gap-4">
+        <div class="d-flex align-center gap-3">
+            <MudIcon Icon="@Icons.Material.Filled.EventNote" Style="color: #A29BFE;" Size="Size.Large" />
+            <MudText Typo="Typo.h5" Style="color: #A29BFE; font-weight: 900; letter-spacing: 2px; white-space: nowrap;">레이드 참여 현황</MudText>
+        </div>
+
+        <MudButton Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.AddLink"
+                   Class="btn-responsive rounded-lg"
+                   Href="/raids/apply">
+            신청 페이지 이동
+        </MudButton>
+    </div>
+
+    @if (isProcessing)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else if (!_myUpcomingRaids.Any())
+    {
+        <div class="glass-panel py-16 d-flex flex-column align-center">
+            <MudIcon Icon="@Icons.Material.Filled.HistoryEdu" Size="Size.Large" Style="color: rgba(255,255,255,0.2);" />
+            <MudText Style="color: rgba(255,255,255,0.4);" Class="mt-4" Typo="Typo.h6">예정된 일정이 없습니다.</MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-6" href="/raids/apply">신청 페이지 이동</MudButton>
+        </div>
+    }
+    else
+    {
+        @* --- [1] 승인 완료 섹션 --- *@
+        var confirmedRaids = GetGroupedRaids(true);
+        if (confirmedRaids.Any())
+        {
+            <div class="section-header">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Style="color: #A29BFE;" Size="Size.Small" />
+                <MudText Typo="Typo.subtitle2" Style="color: #A29BFE; font-weight: 900;">배정완료 (공대장 승인 완료)</MudText>
+                <div class="section-line"></div>
+            </div>
+            @foreach (var raid in confirmedRaids)
+            {
+                @RenderRaidCard(raid)
+            }
+        }
+
+        @* --- [2] 신청 중 섹션 --- *@
+        var pendingRaids = GetGroupedRaids(false);
+        if (pendingRaids.Any())
+        {
+            <div class="section-header">
+                <MudIcon Icon="@Icons.Material.Filled.Pending" Style="color: #FFD166;" Size="Size.Small" />
+                <MudText Typo="Typo.subtitle2" Style="color: #FFD166; font-weight: 900;">신청 중 (공대장 승인 대기)</MudText>
+                <div class="section-line" style="background: linear-gradient(90deg, rgba(255, 209, 102, 0.5) 0%, transparent 100%);"></div>
+            </div>
+            @foreach (var raid in pendingRaids)
+            {
+                @RenderRaidCard(raid)
+            }
+        }
+    }
+</MudContainer>
+
+@code {
+    private bool isProcessing = true;
+    private List<RaidGroup> _myUpcomingRaids = new();
+    private List<RaidMeta> raidMetas = new();
+    private List<RaidApplication> raidApplications = new();
+    private List<Character> characters = new();
+    private List<JobMaster> jobMasters = new();
+
+    protected override async Task OnInitializedAsync() { await LoadData(); }
+
+    private List<RaidGroup> GetGroupedRaids(bool confirmed)
+    {
+        return _myUpcomingRaids.Where(r =>
+        {
+            var myApps = raidApplications.Where(a => a.RaidId == r.Id && a.AdventureId == Appstate.CurrentAdventureId);
+            return confirmed ? myApps.Any(a => a.Status == "승인") : myApps.All(a => a.Status != "승인");
+        }).ToList();
+    }
+
+    private RenderFragment RenderRaidCard(RaidGroup raid) => __builder =>
+    {
+        var meta = raidMetas.FirstOrDefault(m => m.Id == raid.RaidMetaId);
+        var myAppsInRaid = raidApplications.Where(a => a.RaidId == raid.Id && a.AdventureId == Appstate.CurrentAdventureId).ToList();
+        bool isClosed = raid.IsClosed;
+
+        <div class="glass-panel mb-4 pa-4 @(isClosed ? "card-closed" : "card-open")">
+            @* 1. 상단: 레이드명 및 일시 *@
+            <div class="d-flex align-center gap-3 mb-3">
+                <div class="raid-status-badge @(isClosed ? "status-closed" : "status-open")">
+                    @(isClosed ? "모집마감" : "모집중")
+                </div>
+                <div>
+                    <MudText Typo="Typo.subtitle1" Style="font-weight:900; line-height:1.2;">@meta?.RaidName</MudText>
+                    <MudText Typo="Typo.caption" Style="color:rgba(255,255,255,0.4);">@raid.RaidDate.ToString("MM/dd(ddd)") | @raid.RaidTime.ToString(@"hh\:mm") 출발</MudText>
+                </div>
+            </div>
+
+            @* 2. 중단: 설명 박스 *@
+            @if (!string.IsNullOrEmpty(raid.Description))
+            {
+                <div class="desc-box-middle">
+                    <MudText Class="description-text">@raid.Description</MudText>
+                </div>
+            }
+
+            @* 3. 하단: 내 캐릭터 리스트 *@
+            <div class="d-flex flex-column gap-2">
+                @foreach (var myApp in myAppsInRaid)
+                {
+                    var c = characters.FirstOrDefault(x => x.Id == myApp.CharacterId);
+                    var isConfirmed = myApp.Status == "승인";
+                    string jobName = GetJobName(c?.Job, c?.Is_Support ?? false);
+
+                    <div class="my-char-row d-flex align-center">
+                        <span class="status-tag @(isConfirmed ? "tag-confirmed" : "tag-waiting") mr-3">
+                            @(isConfirmed ? "배정완료" : "신청중")
+                        </span>
+                        <MudText Typo="Typo.body2" Style="font-weight:900;" Class="text-truncate">
+                            @c?.Char_name <span style="color:rgba(255,255,255,0.4); font-weight:400; font-size:0.8rem;">- @jobName</span>
+                        </MudText>
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    private async Task LoadData()
+    {
+        try
+        {
+            isProcessing = true;
+            var todayStr = DateTime.Today.ToString("yyyy-MM-dd");
+            raidMetas = (await SupaClient.From<RaidMeta>().Get()).Models;
+            if (!Appstate.CachedJobMasters.Any()) Appstate.CachedJobMasters = (await SupaClient.From<JobMaster>().Where(x => x.IsActive == true).Get()).Models;
+            jobMasters = Appstate.CachedJobMasters;
+
+            var myApps = await SupaClient.From<RaidApplication>().Where(x => x.AdventureId == Appstate.CurrentAdventureId).Get();
+            var myRaidIds = myApps.Models.Select(a => a.RaidId).Distinct().ToList();
+
+            if (myRaidIds.Any())
+            {
+                _myUpcomingRaids = (await SupaClient.From<RaidGroup>().Filter("id", Operator.In, myRaidIds).Filter("raid_date", Operator.GreaterThanOrEqual, todayStr)
+                    .Order("raid_date", Ordering.Ascending).Order("raid_time", Ordering.Ascending).Order("id", Ordering.Ascending).Get()).Models;
+
+                if (_myUpcomingRaids.Any())
+                {
+                    var targetRaidIds = _myUpcomingRaids.Select(r => r.Id).ToList();
+                    raidApplications = (await SupaClient.From<RaidApplication>().Filter(x => x.RaidId, Operator.In, targetRaidIds).Where(x => x.AdventureId == Appstate.CurrentAdventureId).Get()).Models;
+                    var charIds = raidApplications.Select(a => a.CharacterId).Distinct().ToList();
+                    if (charIds.Any()) characters = (await SupaClient.From<Character>().Filter(x => x.Id, Operator.In, charIds).Get()).Models;
+                }
+            }
+        }
+        finally { isProcessing = false; StateHasChanged(); }
+    }
+
+    private string GetJobName(string? jobValue, bool isSupport)
+    {
+        if (string.IsNullOrWhiteSpace(jobValue)) return isSupport ? "버퍼" : "딜러";
+        var job = jobMasters.FirstOrDefault(j => j.Id.ToString() == jobValue || j.JobName == jobValue);
+        return job?.JobName ?? (isSupport ? "버퍼" : "딜러");
+    }
+}

@@ -1,0 +1,368 @@
+﻿@using SSM.Models
+@using SSM.Services
+@using MudBlazor
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+@inject IDialogService DialogService
+
+<style>
+    .glass-dialog-container {
+        background: rgba(15, 15, 30, 0.95) !important;
+        backdrop-filter: blur(25px) saturate(150%) !important;
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 20px !important;
+        color: white !important;
+        max-height: 90vh !important;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .mud-dialog-content {
+        flex: 1;
+        overflow-y: auto !important;
+        padding: 16px 24px !important;
+    }
+
+    .bundle-slot-box {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        margin-bottom: 12px;
+        padding: 12px;
+    }
+
+    .assigned-slot {
+        border-left: 6px solid #4CAF50 !important;
+        background: rgba(76, 175, 80, 0.08) !important;
+    }
+
+    .text-white-imp {
+        color: #ffffff !important;
+        text-shadow: 1px 1px 2px black;
+    }
+
+    .text-gray-imp {
+        color: #8E9AAF !important;
+    }
+</style>
+
+<MudDialog Class="glass-dialog-container">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Class="text-white-imp d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.FactCheck" Class="mr-2" Style="color: #A29BFE;" />
+            <b>@RaidName 신청 정보</b>
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (isProcessing)
+        {
+            <div class="d-flex justify-center pa-10">
+                <MudProgressCircular Indeterminate="true" Style="color: #A29BFE;" />
+            </div>
+        }
+        else
+        {
+            <div class="d-flex justify-space-between align-center mb-4">
+                <MudAlert Severity="Severity.Normal" Dense="true" Class="rounded-lg flex-grow-1 mr-2" Style="background: rgba(162, 155, 254, 0.1); color: #A29BFE;">
+                    최대 <b>@TargetRaid?.BundleSize 캐릭터</b> 신청 가능
+                </MudAlert>
+
+                @if ((TargetRaid?.BundleSize ?? 1) > 1 && existingApps.Any(a => a.PartyNo == 0))
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="RemoveAllPendingApplications">
+                        미배정 전체 취소
+                    </MudButton>
+                }
+            </div>
+
+            @for (int i = 0; i < (TargetRaid?.BundleSize ?? 1); i++)
+            {
+                var index = i;
+                var charInSlot = selectedChars[index];
+                var matchingApp = existingApps.FirstOrDefault(a => a.CharacterId == charInSlot?.Id);
+                bool isAssigned = matchingApp != null && matchingApp.PartyNo != 0;
+
+                <div class="bundle-slot-box @(isAssigned ? "assigned-slot" : "")">
+                    <div class="d-flex justify-space-between align-center mb-2">
+                        <MudText Typo="Typo.caption" Style="@(isAssigned ? "color: #4CAF50;" : "color: #A29BFE;")" Class="font-weight-black">
+                            SLOT @(index + 1) @(isAssigned ? "[배정확정]" : "")
+                        </MudText>
+                        @if (isAssigned)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Icon="@Icons.Material.Filled.Lock">변경불가</MudChip>
+                        }
+                    </div>
+
+                    <MudAutocomplete T="Character"
+                                     @ref="_autocompleteRefs[index]"
+                                     Value="selectedChars[index]"
+                                     ValueChanged="@(c => OnCharChanged(index, c))"
+                                     SearchFunc="@SearchCharacters"
+                                     Variant="Variant.Outlined"
+                                     ToStringFunc="@(c => c == null ? "선택 안 함" : $"[{ (c.Is_Support ? "벞" : "딜") }] {c.Char_name} ({GetJobName(c.Job, c.Is_Support)})")"
+                                     Clearable="!isAssigned"
+                                     Disabled="isAssigned"
+                                     Dense="true"
+                                     MaxHeight="400"
+                                     MaxItems="100"
+                                     EnableVirtualization="false"
+                                     CoerceText="false"
+                                     ResetValueOnEmptyText="true"
+                                     Placeholder="클릭하여 캐릭터 선택">
+                        <ItemTemplate Context="c">
+                            <div class="d-flex align-center justify-space-between w-100">
+                                <MudText Typo="Typo.body2"><b>@c.Char_name</b> <span style="font-size: 0.8em; color: gray;">(@GetJobName(c.Job, c.Is_Support))</span></MudText>
+                                <MudText Typo="Typo.caption" Style="@($"color: {(c.Is_Support ? "#FDA7DF" : "#A29BFE")}; font-weight:900;")">
+                                    @(c.Is_Support ? "버퍼" : "딜러")
+                                </MudText>
+                            </div>
+                        </ItemTemplate>
+                    </MudAutocomplete>
+
+                    @if (matchingApp != null && !isAssigned)
+                    {
+                        <div class="d-flex justify-end mt-2">
+                            <MudLink Color="Color.Error" Underline="Underline.Always" Style="font-size:0.7rem;" OnClick="@(() => RemoveSlotApplication(matchingApp))">해당 캐릭터 신청 취소</MudLink>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (HasUnassignedSlot && AnyCharInSlot)
+        {
+            <MudButton OnClick="CancelDialog" Class="text-gray-imp">취소</MudButton>
+            <MudButton Style="background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: white; font-weight: 900;"
+                       Variant="Variant.Filled" OnClick="Submit" Disabled="@(isProcessing)">
+                신청 정보 저장
+            </MudButton>
+        }
+        else
+        {
+            <MudButton OnClick="CancelDialog" Variant="Variant.Outlined" Class="text-gray-imp" Style="width:100px;">닫기</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudBlazor.IMudDialogInstance MudDialog { get; set; }
+    [Parameter] public int RaidId { get; set; }
+    [Parameter] public string RaidName { get; set; }
+
+    private RaidGroup? TargetRaid;
+    private List<Character> myCharacters = new();
+    private List<RaidApplication> existingApps = new();
+    private Character?[] selectedChars = new Character?[8];
+    private List<int> weeklyDuplicateCharIds = new();
+    private List<JobMaster> _jobs = new();
+    private bool isProcessing = true;
+    private MudAutocomplete<Character>[] _autocompleteRefs = new MudAutocomplete<Character>[8];
+
+    private bool AnyCharInSlot => selectedChars.Any(c => c != null);
+
+    private bool HasUnassignedSlot
+    {
+        get
+        {
+            if (TargetRaid == null) return false;
+            int maxSlots = TargetRaid.BundleSize;
+            int assignedSlotsCount = existingApps.Count(a => a.PartyNo != 0);
+            return assignedSlotsCount < maxSlots;
+        }
+    }
+
+    protected override async Task OnInitializedAsync() { await LoadInitialData(); isProcessing = false; }
+
+    private async Task LoadInitialData()
+    {
+        TargetRaid = await SupaClient.From<RaidGroup>().Where(x => x.Id == RaidId).Single();
+        myCharacters = (await SupaClient.From<Character>().Where(x => x.AdventureId == AppState.CurrentAdventureId).Get()).Models;
+        existingApps = (await SupaClient.From<RaidApplication>().Where(x => x.RaidId == RaidId).Where(x => x.AdventureId == AppState.CurrentAdventureId).Get()).Models;
+
+        if (!AppState.CachedJobMasters.Any()) AppState.CachedJobMasters = (await SupaClient.From<JobMaster>().Where(x => x.IsActive == true).Get()).Models;
+        _jobs = AppState.CachedJobMasters;
+
+        await LoadWeeklyDuplicateCharIds();
+
+        for (int i = 0; i < 8; i++) selectedChars[i] = null;
+        for (int i = 0; i < existingApps.Count; i++)
+        {
+            if (i < 8) selectedChars[i] = myCharacters.FirstOrDefault(c => c.Id == existingApps[i].CharacterId);
+        }
+        StateHasChanged();
+    }
+
+    private string GetJobName(string? jobValue, bool isSupport)
+    {
+        if (string.IsNullOrWhiteSpace(jobValue)) return isSupport ? "버퍼" : "딜러";
+        var job = _jobs.FirstOrDefault(j => j.Id.ToString() == jobValue || j.JobName == jobValue);
+        return job?.JobName ?? (isSupport ? "버퍼" : "딜러");
+    }
+
+    private async Task LoadWeeklyDuplicateCharIds()
+    {
+        if (TargetRaid == null) return;
+        int diff = (7 + (TargetRaid.RaidDate.DayOfWeek - DayOfWeek.Thursday)) % 7;
+        DateTime start = TargetRaid.RaidDate.AddDays(-1 * diff).Date;
+        DateTime end = start.AddDays(7);
+
+        var raidIds = (await SupaClient.From<RaidGroup>()
+            .Where(x => x.RaidMetaId == TargetRaid.RaidMetaId)
+            .Filter("raid_date", Operator.GreaterThanOrEqual, start)
+            .Filter("raid_date", Operator.LessThan, end)
+            .Get()).Models.Select(r => r.Id).ToList();
+
+        var otherApps = (await SupaClient.From<RaidApplication>()
+            .Where(x => x.AdventureId == (int)AppState.CurrentAdventureId)
+            .Filter("raid_id", Operator.In, raidIds)
+            .Get()).Models.Where(x => x.RaidId != RaidId);
+
+        weeklyDuplicateCharIds = otherApps.Select(a => a.CharacterId).ToList();
+    }
+
+    private async Task OnCharChanged(int index, Character? c)
+    {
+        if (c == null) { selectedChars[index] = null; StateHasChanged(); return; }
+        bool isDuplicate = selectedChars.Where((val, idx) => idx != index).Any(sc => sc?.Id == c.Id);
+
+        if (isDuplicate)
+        {
+            await DialogService.ShowMessageBox("중복 선택", $"{c.Char_name}은(는) 이미 다른 슬롯에 선택되어 있습니다.");
+            selectedChars[index] = null;
+            if (_autocompleteRefs[index] != null) await _autocompleteRefs[index].ResetAsync();
+            StateHasChanged();
+            return;
+        }
+        selectedChars[index] = c;
+        StateHasChanged();
+    }
+
+    private async Task Submit()
+    {
+        try
+        {
+            isProcessing = true;
+            if (!AnyCharInSlot) { await DialogService.ShowMessageBox("알림", "최소 한 명의 캐릭터를 선택해야 합니다."); isProcessing = false; return; }
+
+            for (int i = 0; i < (TargetRaid?.BundleSize ?? 1); i++)
+            {
+                var newChar = selectedChars[i];
+                var oldApp = existingApps.Count > i ? existingApps[i] : null;
+                if (oldApp?.PartyNo != 0 && oldApp != null) continue;
+
+                if (oldApp != null && newChar != null)
+                {
+                    if (oldApp.CharacterId != newChar.Id)
+                    {
+                        if (await CheckDup(newChar)) { isProcessing = false; return; }
+                        await SupaClient.From<RaidApplication>().Where(x => x.Id == oldApp.Id).Set(x => x.CharacterId, (int)newChar.Id).Update();
+                    }
+                }
+                else if (oldApp == null && newChar != null)
+                {
+                    if (await CheckDup(newChar)) { isProcessing = false; return; }
+                    await SupaClient.From<RaidApplication>().Insert(new RaidApplication { RaidId = RaidId, AdventureId = (int)AppState.CurrentAdventureId, CharacterId = (int)newChar.Id, Status = "대기", PartyNo = 0, AppliedAt = DateTime.Now });
+                }
+                else if (oldApp != null && newChar == null)
+                {
+                    await SupaClient.From<RaidApplication>().Delete(oldApp);
+                }
+            }
+
+            // 🚩 스낵바 대신 기존처럼 MessageBox로 통일감 부여
+            await DialogService.ShowMessageBox("완료", "공대 신청 정보가 성공적으로 저장되었습니다.");
+
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex) { await DialogService.ShowMessageBox("오류", $"저장 중 오류: {ex.Message}"); }
+        finally { isProcessing = false; }
+    }
+
+    private async Task<bool> CheckDup(Character c)
+    {
+        var dup = await GetWeeklyDuplicateRaidName((int)c.Id);
+        if (dup != null) { await DialogService.ShowMessageBox("신청 불가", (MarkupString)$"<b>{c.Char_name}</b>님 중복:<br/>{dup}"); return true; }
+        return false;
+    }
+
+    private async Task RemoveSlotApplication(RaidApplication app)
+    {
+        if (await DialogService.ShowMessageBox("취소 확인", "해당 캐릭터 신청을 취소할까요?", "확인", "취소") == true)
+        {
+            isProcessing = true;
+            try
+            {
+                await SupaClient.From<RaidApplication>().Delete(app);
+                for (int i = 0; i < 8; i++)
+                {
+                    if (selectedChars[i]?.Id == app.CharacterId)
+                    {
+                        selectedChars[i] = null;
+                        if (_autocompleteRefs[i] != null) await _autocompleteRefs[i].ResetAsync();
+                    }
+                }
+                await LoadInitialData();
+                await DialogService.ShowMessageBox("완료", "해당 캐릭터의 신청이 취소되었습니다.");
+            }
+            finally { isProcessing = false; }
+        }
+    }
+
+    private async Task RemoveAllPendingApplications()
+    {
+        var pendingApps = existingApps.Where(a => a.PartyNo == 0).ToList();
+        if (!pendingApps.Any()) return;
+
+        if (await DialogService.ShowMessageBox("전체 취소 확인", $"배정되지 않은 {pendingApps.Count}개의 캐릭터 신청을 모두 취소하시겠습니까?", "확인", "취소") == true)
+        {
+            isProcessing = true;
+            try
+            {
+                foreach (var app in pendingApps) { await SupaClient.From<RaidApplication>().Delete(app); }
+                for (int i = 0; i < 8; i++)
+                {
+                    if (selectedChars[i] != null && pendingApps.Any(p => p.CharacterId == selectedChars[i]?.Id))
+                    {
+                        selectedChars[i] = null;
+                        if (_autocompleteRefs[i] != null) await _autocompleteRefs[i].ResetAsync();
+                    }
+                }
+                await LoadInitialData();
+                await DialogService.ShowMessageBox("완료", "미배정된 모든 캐릭터의 신청이 취소되었습니다.");
+            }
+            finally { isProcessing = false; }
+        }
+    }
+
+    private async Task<string?> GetWeeklyDuplicateRaidName(int characterId)
+    {
+        var raidRes = await SupaClient.From<RaidGroup>().Where(x => x.Id == RaidId).Single();
+        if (raidRes == null) return null;
+        int diff = (7 + (raidRes.RaidDate.DayOfWeek - DayOfWeek.Thursday)) % 7;
+        DateTime start = raidRes.RaidDate.AddDays(-1 * diff).Date;
+        var raidIds = (await SupaClient.From<RaidGroup>().Where(x => x.RaidMetaId == raidRes.RaidMetaId).Filter("raid_date", Operator.GreaterThanOrEqual, start).Filter("raid_date", Operator.LessThan, start.AddDays(7)).Get()).Models.Select(r => r.Id).ToList();
+        var otherApp = (await SupaClient.From<RaidApplication>().Where(x => x.CharacterId == characterId).Filter("raid_id", Operator.In, raidIds).Get()).Models.FirstOrDefault(x => x.RaidId != RaidId);
+        return otherApp != null ? "이번 주 이미 다른 공대에 신청되어 있습니다." : null;
+    }
+
+    private async Task<IEnumerable<Character>> SearchCharacters(string value, CancellationToken token)
+    {
+        var currentSlotIds = selectedChars.Where(c => c != null).Select(c => (int)c.Id).ToList();
+        var appliedCharIds = existingApps.Select(a => a.CharacterId).ToList();
+        var excludeIds = currentSlotIds.Union(appliedCharIds).Union(weeklyDuplicateCharIds).Distinct().ToList();
+
+        var availableChars = myCharacters.Where(c => !excludeIds.Contains((int)c.Id)).ToList();
+
+        if (string.IsNullOrEmpty(value) || value == "선택 안 함")
+            return availableChars.OrderByDescending(x => x.Spec);
+
+        return availableChars
+            .Where(x => x.Char_name.Contains(value, StringComparison.InvariantCultureIgnoreCase))
+            .OrderByDescending(x => x.Spec);
+    }
+
+    private void CancelDialog() => MudDialog.Close(DialogResult.Ok(true));
+}

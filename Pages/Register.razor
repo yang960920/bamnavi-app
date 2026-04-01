@@ -1,0 +1,179 @@
+﻿@page "/register"
+@using SSM.Models
+@inject Supabase.Client Supabase
+@inject NavigationManager NavManager
+@inject IDialogService DialogService
+
+<style>
+    /* 📱 전체 가로 스크롤 방지 */
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 전용 가독성 강화 유리 효과 (사용자 지침 반영) */
+    .register-glass-card {
+        /* 배경 불투명도 70% + 진한 블랙 네이비 */
+        background: rgba(15, 15, 30, 0.7) !important;
+        /* 블러 강도 25px로 강화하여 뒷배경 간섭 완벽 차단 */
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 🦋 로고 나비 - 사용자님이 원하신 원본 색상 로직 적용 */
+    .register-logo {
+        font-size: 3.5rem;
+        /* 원본 보라색 필터값 및 광채 유지 */
+        filter: sepia(1) saturate(1.5) hue-rotate(225deg) brightness(1.2) drop-shadow(0 0 15px #A29BFE);
+        margin-bottom: 5px;
+        display: inline-block;
+        user-select: none;
+    }
+
+    /* 입력창 디자인 보정 (가독성 강화) */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important; /* 연보라색 라벨 */
+        font-weight: 600;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+    }
+
+    .mud-input-root-outlined {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+    }
+
+    /* 포커스 시 연보라 광채 */
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+        box-shadow: 0 0 12px rgba(162, 155, 254, 0.3);
+    }
+
+    /* 등록 버튼 스타일 */
+    .btn-register-night {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        height: 55px;
+        font-weight: 900 !important;
+        font-size: 1.1rem !important;
+        letter-spacing: 1px;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3) !important;
+    }
+
+    .login-link {
+        color: #A29BFE !important;
+        text-decoration: none;
+        font-weight: 900;
+    }
+
+        .login-link:hover {
+            text-decoration: underline;
+        }
+
+    .text-shadow-strong {
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-10">
+    <div class="d-flex flex-column align-center mb-6">
+        <span class="register-logo">🦋</span>
+        <MudText Typo="Typo.h4" Style="color: white; font-weight: 900; letter-spacing: 3px;" Class="text-shadow-strong">밤나비</MudText>
+    </div>
+
+    <MudPaper Class="pa-10 register-glass-card" Elevation="0">
+        <MudText Typo="Typo.h5" Align="Align.Center" Style="color: white; font-weight: 900;" Class="mb-2 text-shadow-strong">📝 모험단 등록</MudText>
+        <MudText Typo="Typo.body2" Align="Align.Center" Style="color: #A4B0BE;" Class="mb-10">공대 관리를 위해 모험단을 등록해주세요.</MudText>
+
+        <MudForm @ref="form" @bind-IsValid="@success">
+            <MudTextField T="string" Label="모험단명" Required="true"
+                          @bind-Value="model.AdventureName"
+                          RequiredError="모험단명을 입력해주세요."
+                          Variant="Variant.Outlined" Class="mb-6" />
+
+            <MudTextField @bind-Value="model.Password"
+                          Label="비밀번호"
+                          Variant="Variant.Outlined"
+                          InputType="@(isShowPassword ? InputType.Text : InputType.Password)"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@(isShowPassword ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                          OnAdornmentClick="TogglePasswordVisibility"
+                          Required="true"
+                          RequiredError="비밀번호를 입력해주세요."
+                          Class="mb-6" />
+
+            <MudTextField @bind-Value="passwordCheck"
+                          Label="비밀번호 확인"
+                          Variant="Variant.Outlined"
+                          InputType="@(isShowPasswordCheck ? InputType.Text : InputType.Password)"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@(isShowPasswordCheck ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                          OnAdornmentClick="TogglePasswordCheckVisibility"
+                          Validation="@(new Func<string, string?>(PasswordMatch))"
+                          Required="true"
+                          Class="mb-10" />
+
+            <MudButton Variant="Variant.Filled"
+                       Class="btn-register-night"
+                       FullWidth="true"
+                       OnClick="Submit" Disabled="@(!success)">
+                등록하기
+            </MudButton>
+        </MudForm>
+
+        <div class="mt-10 d-flex justify-center">
+            <MudText Style="color: #8E9AAF; font-size: 0.95rem;">
+                이미 계정이 있으신가요? <a href="/login" class="login-link ml-2">로그인하기</a>
+            </MudText>
+        </div>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    MudForm form;
+    bool success;
+
+    Adventure model = new Adventure();
+    string passwordCheck;
+
+    bool isShowPassword;
+    bool isShowPasswordCheck;
+
+    void TogglePasswordVisibility() => isShowPassword = !isShowPassword;
+    void TogglePasswordCheckVisibility() => isShowPasswordCheck = !isShowPasswordCheck;
+
+    private string? PasswordMatch(string arg)
+    {
+        if (model.Password != arg) return "비밀번호가 일치하지 않습니다.";
+        return null;
+    }
+
+    private async Task Submit()
+    {
+        try
+        {
+            // 중복 확인
+            var check = await Supabase.From<Adventure>()
+                                      .Where(x => x.AdventureName == model.AdventureName)
+                                      .Get();
+
+            if (check.Models.Count > 0)
+            {
+                await DialogService.ShowMessageBox("등록 실패", "이미 존재하는 모험단명입니다.", yesText: "확인");
+                return;
+            }
+
+            // 저장
+            await Supabase.From<Adventure>().Insert(model);
+
+            await DialogService.ShowMessageBox("환영합니다!", "등록이 완료되었습니다.\n로그인 페이지로 이동합니다.", yesText: "확인");
+
+            NavManager.NavigateTo("/login");
+        }
+        catch (Exception ex)
+        {
+            await DialogService.ShowMessageBox("오류 발생", ex.Message, yesText: "닫기");
+        }
+    }
+}

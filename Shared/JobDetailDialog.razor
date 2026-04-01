@@ -1,0 +1,79 @@
+﻿@using SSM.Models
+@using MudBlazor
+@* 🚩 충돌의 원인인 @using static SSM.Pages.Ranking 부분을 삭제했습니다. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6" Class="d-flex align-center" Style="color: white;">
+            <MudIcon Icon="@Icons.Material.Filled.Leaderboard" Color="Color.Info" Class="mr-2" />
+            <b>@JobName 상세 순위 (TOP 3)</b>
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudList T="string">
+            @if (Top3List != null && Top3List.Any())
+            {
+                @for (int i = 0; i < Top3List.Count; i++)
+                {
+                    var item = Top3List[i];
+                    var rank = i + 1;
+                    <MudListItem>
+                        <div class="d-flex align-center justify-space-between w-100">
+                            <div class="d-flex align-center">
+                                @* 순위별 디자인 *@
+                                <MudText Typo="Typo.h6" Class="mr-4" Style="@GetRankStyle(rank)">
+                                    @rank 위
+                                </MudText>
+                                <div>
+                                    <MudText Typo="Typo.body1" Style="color:white;"><b>@item.CharName</b></MudText>
+                                    <MudText Typo="Typo.caption" Style="color:rgba(255,255,255,0.5)">@item.AdventureName</MudText>
+                                </div>
+                            </div>
+                            <MudText Typo="Typo.body1" Color="Color.Info">
+                                <b>@FormatValue(item)</b>
+                            </MudText>
+                        </div>
+                    </MudListItem>
+                    @if (i < Top3List.Count - 1)
+                    {
+                        <MudDivider Style="border-color: rgba(255,255,255,0.1) !important;" />
+                    }
+                }
+            }
+        </MudList>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close" FullWidth="true" Style="height:45px;">닫기</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+
+    // 🚩 Models.RankRow를 사용하도록 명시
+    [Parameter] public List<RankRow> Top3List { get; set; } = new();
+    [Parameter] public string JobName { get; set; } = "";
+
+    private void Close() => MudDialog.Close();
+
+    private string GetRankStyle(int rank) => rank switch
+    {
+        1 => "color:#FFD700; font-weight:900; min-width:45px;", // 금
+        2 => "color:#C0C0C0; font-weight:900; min-width:45px;", // 은
+        3 => "color:#CD7F32; font-weight:900; min-width:45px;", // 동
+        _ => "min-width:45px; color:white;"
+    };
+
+    private string FormatValue(RankRow row)
+    {
+        if (row.IsSupport) return row.Spec.ToString("N0");
+        double val = row.Spec;
+        if (val < 10000) return "0";
+        long eok = (long)(val / 100000000);
+        long man = (long)((val % 100000000) / 10000);
+
+        if (eok > 0 && man > 0) return $"{eok}억 {man}만";
+        if (eok > 0) return $"{eok}억";
+        return $"{man}만";
+    }
+}

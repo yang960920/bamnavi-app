@@ -1,0 +1,474 @@
+﻿@page "/raids/organize/{RaidId:int}"
+@using SSM.Models
+@using SSM.Shared
+@using SSM.Services
+@using MudBlazor
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject NavigationManager NavManager
+
+<style>
+    /* 🚩 1. 상위 요소의 overflow 제한 해제 (Sticky 작동 필수) */
+    html, body, .mud-layout, .mud-main-content, .mud-container {
+        overflow: visible !important;
+    }
+
+    .glass-header {
+        background: rgba(15, 15, 30, 0.8) !important;
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        color: white !important;
+    }
+
+    .glass-card {
+        background: rgba(30, 30, 30, 0.6) !important;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: white !important;
+    }
+
+    /* 🚩 2. 메인 레이아웃 (반응형 그리드) */
+    .organize-main-layout {
+        display: grid;
+        grid-template-columns: 1fr 340px; /* PC 기본 */
+        gap: 20px;
+        align-items: start;
+        width: 100%;
+    }
+
+    /* 🚩 3. 사이드바 반응형 설정 */
+    .sidebar-sticky-area {
+        position: -webkit-sticky;
+        position: sticky;
+        top: 85px;
+        z-index: 10;
+        width: 340px;
+        height: calc(100vh - 110px);
+    }
+
+    /* 📱 모바일 (화면 폭 960px 미만) 대응 */
+    @@media (max-width: 960px) {
+        .organize-main-layout {
+            grid-template-columns: 1fr; /* 1열로 변경 */
+        }
+
+        .sidebar-sticky-area {
+            position: relative; /* 모바일에선 따라오지 않고 하단에 위치하거나 위로 올림 */
+            top: 0;
+            width: 100%;
+            height: auto;
+            max-height: 500px;
+            margin-top: 20px;
+        }
+    }
+
+    .sidebar-glass-dropzone {
+        background: rgba(20, 20, 20, 0.8) !important;
+        backdrop-filter: blur(15px);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 16px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .sidebar-content-layer {
+        padding: 20px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        z-index: 10;
+    }
+
+    .adventure-list-scroll {
+        overflow-y: auto;
+        flex-grow: 1;
+        padding-right: 4px;
+    }
+
+    /* 기수별 묶음 스타일 */
+    .bundle-group-container {
+        border: 2px solid rgba(162, 155, 254, 0.2);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 30px;
+        background: rgba(162, 155, 254, 0.02);
+        position: relative;
+    }
+
+    .bundle-label {
+        position: absolute;
+        top: -14px;
+        left: 20px;
+        background: #6c5ce7;
+        color: white;
+        padding: 2px 12px;
+        border-radius: 20px;
+        font-weight: 900;
+        font-size: 0.8rem;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+
+    .adventure-group-zone {
+        background: rgba(162, 155, 254, 0.03) !important;
+        border: 1px dashed rgba(162, 155, 254, 0.3) !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        margin-bottom: 12px !important;
+        min-height: 64px !important;
+    }
+
+    .dynamic-adventure-zone {
+        border: 2px dashed #A29BFE !important;
+        background: rgba(162, 155, 254, 0.15) !important;
+    }
+
+    .adventure-name-tag {
+        font-size: 0.85rem;
+        font-weight: 900;
+        color: #A29BFE;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .drop-zone {
+        border: 2px dashed rgba(255, 255, 255, 0.1);
+        min-height: 120px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.2) !important;
+    }
+
+    .drop-zone-active {
+        border-color: #A29BFE !important;
+        background-color: rgba(162, 155, 254, 0.1) !important;
+    }
+
+    .item-card {
+        cursor: grab;
+        user-select: none;
+        background: rgba(45, 45, 45, 0.95) !important;
+        color: white !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border-radius: 8px;
+        transition: transform 0.1s;
+    }
+
+    .text-white-imp {
+        color: white !important;
+        text-shadow: 1px 1px 2px black;
+        pointer-events: auto;
+    }
+
+    .adventure-appear-anim {
+        animation: slideIn 0.2s ease-out;
+    }
+
+    /* 🚩 직업 및 서브 텍스트 스타일 추가 */
+    .job-text {
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.5);
+        font-weight: 400;
+        white-space: nowrap;
+    }
+
+    @@keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    @if (isProcessing)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <MudPaper Elevation="4" Class="pa-4 mb-6 rounded-lg glass-header" Style="@($"border-left: 8px solid {(isClosed ? "#9e9e9e" : "#A29BFE")};")">
+            <div class="d-flex justify-space-between align-center flex-wrap gap-4">
+                <div class="d-flex flex-column">
+                    <MudText Typo="Typo.h5" Class="text-white-imp"><b>⚔️ @raidName</b></MudText>
+                    <MudText Typo="Typo.body2" Class="text-gray-imp">@raidDate.ToString("yyyy-MM-dd") @raidTime.ToString(@"hh\:mm") | <b>정원 @maxMember 명</b></MudText>
+                </div>
+                <div class="d-flex gap-2">
+                    @if (isClosed)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="ReopenRaid">마감 해제</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="FinishRaidGrouping">공대 마감</MudButton>
+                    }
+                    <MudButton Variant="Variant.Outlined" Color="Color.Inherit" OnClick="@(() => NavManager.NavigateTo("/admin/raids"))">관리 센터</MudButton>
+                </div>
+            </div>
+        </MudPaper>
+
+        <MudDropContainer T="RaidAppView"
+                          @ref="_container"
+                          Items="_items"
+                          ItemsSelector="@((RaidAppView item, string zoneId) => GetItemZoneMatch(item, zoneId))"
+                          ItemDropped="ItemUpdated"
+                          OnDragStart="@((RaidAppView item) => _draggingItem = item)"
+                          OnDragEnd="@((RaidAppView item) => _draggingItem = null)"
+                          CanDropClass="drop-zone-active"
+                          Class="organize-main-layout">
+            <ChildContent>
+                @* --- [왼쪽/중앙] 파티 구역 --- *@
+                <div class="left-section">
+                    @{
+                        int totalBundles = (int)Math.Ceiling((double)partyCount / partiesPerBundle);
+                    }
+                    @for (int b = 1; b <= totalBundles; b++)
+                    {
+                        var bundleIdx = b;
+                        <div class="bundle-group-container">
+                            <div class="bundle-label">@($"{bundleIdx}기수 편성 구역")</div>
+                            <MudGrid Spacing="3">
+                                @for (int p = (bundleIdx - 1) * partiesPerBundle + 1; p <= Math.Min(bundleIdx * partiesPerBundle, partyCount); p++)
+                                {
+                                    var partyNum = p.ToString();
+                                    <MudItem xs="12" sm="6">
+                                        <MudPaper Elevation="4" Class="pa-4 glass-card" Style="border-top: 4px solid #A29BFE; border-radius: 12px;">
+                                            <MudText Typo="Typo.subtitle1" Class="text-white-imp mb-3"><b>제 @partyNum 파티</b></MudText>
+                                            <MudDropZone T="RaidAppView" Identifier="@partyNum" Class="drop-zone pa-2 d-flex flex-column gap-2" />
+                                        </MudPaper>
+                                    </MudItem>
+                                }
+                            </MudGrid>
+                        </div>
+                    }
+                </div>
+
+                @* --- [오른쪽/하단] 대기 명단 (선착순 고정) --- *@
+                <div class="sidebar-sticky-area">
+                    <MudDropZone T="RaidAppView" Identifier="RETURN_ZONE" Class="sidebar-glass-dropzone">
+                        <div class="sidebar-content-layer">
+                            <MudText Typo="Typo.h6" Class="mb-4 text-white-imp" Style="flex-shrink: 0;">
+                                📋 대기 명단 (@(_items.Count(x => x.App.PartyNo == 0)))
+                            </MudText>
+
+                            <div class="adventure-list-scroll">
+                                @{
+                                    // 🚩 배정 여부와 상관없이 '모험단별 최초 신청 시간' 기준으로 전체 순서 박제
+                                    var adventureOrderMap = _items
+                                    .GroupBy(x => x.App.AdventureId)
+                                    .Select(g => new
+                                    {
+                                        AdvId = g.Key,
+                                        FirstTime = g.Min(x => x.App.AppliedAt)
+                                    })
+                                    .OrderBy(x => x.FirstTime)
+                                    .Select(x => x.AdvId)
+                                    .ToList();
+                                }
+
+                                @foreach (var advId in adventureOrderMap)
+                                {
+                                    var adventureItems = _items.Where(x => x.App.AdventureId == advId).ToList();
+                                    var waitingItems = adventureItems.Where(x => x.App.PartyNo == 0).ToList();
+
+                                    // 🚩 배정된 인원 카운트
+                                    int totalCount = adventureItems.Count;
+                                    int confirmedCount = adventureItems.Count(x => x.App.PartyNo > 0);
+
+                                    bool isTargetGroup = _draggingItem != null && _draggingItem.App.AdventureId == advId;
+
+                                    @if (waitingItems.Any() || isTargetGroup)
+                                    {
+                                        <div class="adventure-appear-anim mb-4">
+                                            <div class="adventure-name-tag">
+                                                <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Small" />
+                                                <span>@adventureItems.First().AdvName</span>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                                         Style="color: rgba(162, 155, 254, 0.8); font-size: 0.7rem; padding: 0 4px; height: 20px;">
+                                                    (@confirmedCount/@totalCount 배정)
+                                                </MudChip>
+                                            </div>
+                                            <MudDropZone T="RaidAppView" Identifier="@($"adv_{advId}")"
+                                                         Class="@($"adventure-group-zone d-flex flex-column gap-2 {(isTargetGroup && !waitingItems.Any() ? "dynamic-adventure-zone" : "")}")" />
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    </MudDropZone>
+                </div>
+            </ChildContent>
+
+            <ItemRenderer Context="item">
+                <MudPaper Elevation="2" Class="pa-3 item-card" Style="@(item.IsSupport ? "border-left: 6px solid #FDA7DF;" : "border-left: 6px solid #A29BFE;")">
+                    <div class="d-flex justify-space-between align-center">
+                        <div class="d-flex align-center gap-2" style="overflow: hidden;">
+                            <MudAvatar Color="@(item.IsSupport ? Color.Secondary : Color.Info)" Size="Size.Small" Variant="Variant.Filled" Style="flex-shrink: 0;">@(item.IsSupport ? "벞" : "딜")</MudAvatar>
+                            <div style="min-width: 0;">
+                                <div class="d-flex align-center gap-1">
+                                    <MudText Typo="Typo.body2" Class="text-white-imp" Style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 100px;"><b>@item.CharName</b></MudText>
+                                    @* 🚩 모험단명 표기 *@
+                                    <MudText Typo="Typo.caption" Style="color:rgba(255,255,255,0.4); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">(@item.AdvName)</MudText>
+                                </div>
+                                <div class="d-flex align-center gap-2">
+                                    @* 🚩 직업명 표기 *@
+                                    <MudText Typo="Typo.caption" Class="job-text">@item.JobName</MudText>
+                                    <MudText Typo="Typo.caption" Style="font-weight:700; color: #A29BFE;">@(item.IsSupport ? $"{item.Spec:N0}" : FormatDamage(item.Spec))</MudText>
+                                </div>
+                            </div>
+                        </div>
+                        @if (item.App.PartyNo > 0)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Logout" Size="Size.Small" Color="Color.Inherit" OnClick="@(() => MoveToWaiting(item))" Style="flex-shrink: 0;" />
+                        }
+                    </div>
+                </MudPaper>
+            </ItemRenderer>
+        </MudDropContainer>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public int RaidId { get; set; }
+    private MudDropContainer<RaidAppView> _container = null!;
+    private List<RaidAppView> _items = new();
+    private List<JobMaster> _jobs = new(); // 🚩 직업 데이터 리스트
+    private bool isProcessing = true, isClosed = false;
+    private string raidName = "";
+    private DateTime raidDate;
+    private TimeSpan raidTime;
+    private int maxMember = 0, partyCount = 0;
+    private int playersPerBundle = 4;
+    private int partiesPerBundle => (int)Math.Max(1, Math.Ceiling((double)playersPerBundle / 4));
+    private RaidAppView? _draggingItem = null;
+
+    // 🚩 JobName 속성 추가
+    public class RaidAppView { public RaidApplication App { get; set; } = null!; public string CharName { get; set; } = ""; public string AdvName { get; set; } = ""; public string JobName { get; set; } = ""; public bool IsSupport { get; set; } public double Spec { get; set; } }
+
+    private bool GetItemZoneMatch(RaidAppView item, string zoneId)
+    {
+        if (zoneId == "RETURN_ZONE") return _draggingItem != null && item == _draggingItem;
+        if (item.App.PartyNo == 0) return zoneId == $"adv_{item.App.AdventureId}";
+        return item.App.PartyNo.ToString() == zoneId;
+    }
+
+    private string FormatDamage(double spec)
+    {
+        if (spec < 10000) return "0";
+        long s = (long)spec; long uk = s / 100000000, man = (s % 100000000) / 10000;
+        return uk > 0 ? $"{uk:N0}억 {man:N0}만" : $"{man:N0}만";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AppState.IsAdmin) { NavManager.NavigateTo("/raids"); return; }
+        await LoadData(); isProcessing = false;
+    }
+
+    private async Task LoadData()
+    {
+        var raidRes = await SupaClient.From<RaidGroup>().Where(x => x.Id == RaidId).Single();
+        if (raidRes != null)
+        {
+            raidDate = raidRes.RaidDate; raidTime = raidRes.RaidTime;
+            maxMember = raidRes.MaxDealer + raidRes.MaxBuffer; partyCount = (int)Math.Ceiling(maxMember / 4.0); isClosed = raidRes.IsClosed;
+            var metaRes = await SupaClient.From<RaidMeta>().Where(x => x.Id == raidRes.RaidMetaId).Single();
+            raidName = metaRes?.RaidName ?? "알 수 없음"; playersPerBundle = metaRes?.MaxPlayers ?? 4;
+        }
+
+        // 🚩 직업 마스터 데이터 로드
+        if (!AppState.CachedJobMasters.Any()) AppState.CachedJobMasters = (await SupaClient.From<JobMaster>().Where(x => x.IsActive == true).Get()).Models;
+        _jobs = AppState.CachedJobMasters;
+
+        var apps = (await SupaClient.From<RaidApplication>().Where(x => x.RaidId == RaidId).Get()).Models;
+        if (apps.Any())
+        {
+            var charRes = await SupaClient.From<Character>().Filter("id", Operator.In, apps.Select(a => a.CharacterId).ToList()).Get();
+            var charMap = charRes.Models.ToDictionary(c => c.Id);
+            var advRes = await SupaClient.From<Adventure>().Filter("id", Operator.In, apps.Select(a => a.AdventureId).ToList()).Get();
+            var advMap = advRes.Models.ToDictionary(a => a.Id);
+
+            _items = apps.Select(a =>
+            {
+                charMap.TryGetValue(a.CharacterId, out var c); advMap.TryGetValue(a.AdventureId, out var adv);
+
+                // 🚩 직업 이름 매핑
+                var job = _jobs.FirstOrDefault(j => j.Id.ToString() == c?.Job || j.JobName == c?.Job);
+
+                return new RaidAppView
+                    {
+                        App = a,
+                        CharName = c?.Char_name ?? "삭제됨",
+                        AdvName = adv?.AdventureName ?? "-",
+                        JobName = job?.JobName ?? (c?.Is_Support == true ? "버퍼" : "딜러"), // 매핑 실패 시 기본값
+                        IsSupport = c?.Is_Support ?? false,
+                        Spec = c?.Spec ?? 0
+                    };
+            }).ToList();
+        }
+    }
+
+    private async Task ItemUpdated(MudItemDropInfo<RaidAppView> dropInfo)
+    {
+        if (isClosed) return;
+        var item = dropInfo.Item; var targetZone = dropInfo.DropzoneIdentifier;
+        if (targetZone == "RETURN_ZONE" || targetZone.StartsWith("adv_"))
+        {
+            item.App.PartyNo = 0; item.App.Status = "대기";
+        }
+        else
+        {
+            int targetPartyNo = int.Parse(targetZone);
+            int currentBundleIndex = (int)Math.Ceiling((double)targetPartyNo / partiesPerBundle);
+            var bundlePartyStart = (currentBundleIndex - 1) * partiesPerBundle + 1;
+            var bundlePartyEnd = currentBundleIndex * partiesPerBundle;
+            if (_items.Any(x => x.App.AdventureId == item.App.AdventureId && x.App.PartyNo >= bundlePartyStart && x.App.PartyNo <= bundlePartyEnd && x.App.Id != item.App.Id))
+            {
+                await DialogService.ShowMessageBox("배정 불가", "해당 기수에 이미 소속 캐릭터가 있습니다."); return;
+            }
+            if (_items.Count(x => x.App.PartyNo == targetPartyNo) >= 4) { await DialogService.ShowMessageBox("인원 초과", "이 파티는 가득 찼습니다."); return; }
+            item.App.PartyNo = targetPartyNo; item.App.Status = "승인";
+        }
+        await SupaClient.From<RaidApplication>().Where(x => x.Id == item.App.Id).Set(x => x.PartyNo, item.App.PartyNo).Set(x => x.Status, item.App.Status).Update();
+        _container.Refresh();
+    }
+
+    private async Task MoveToWaiting(RaidAppView item)
+    {
+        if (isClosed) return;
+        item.App.PartyNo = 0; item.App.Status = "대기";
+        await SupaClient.From<RaidApplication>().Where(x => x.Id == item.App.Id).Set(x => x.PartyNo, 0).Set(x => x.Status, "대기").Update();
+        _container.Refresh();
+    }
+
+    private async Task FinishRaidGrouping()
+    {
+        if (await DialogService.ShowMessageBox("마감", "편성을 확정하시겠습니까?", "확정", "취소") == true)
+        {
+            isProcessing = true;
+            await SupaClient.From<RaidApplication>().Where(x => x.RaidId == RaidId).Where(x => x.PartyNo == 0).Delete();
+            await SupaClient.From<RaidGroup>().Where(x => x.Id == RaidId).Set(x => x.IsClosed, true).Update();
+            isClosed = true; await LoadData(); isProcessing = false;
+        }
+    }
+
+    private async Task ReopenRaid()
+    {
+        if (await DialogService.ShowMessageBox("재개", "모집을 다시 시작할까요?", "재개", "취소") == true)
+        {
+            isProcessing = true;
+            await SupaClient.From<RaidGroup>().Where(x => x.Id == RaidId).Set(x => x.IsClosed, false).Update();
+            isClosed = false; await LoadData(); isProcessing = false;
+        }
+    }
+}

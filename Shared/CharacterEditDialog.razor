@@ -1,0 +1,169 @@
+﻿@using SSM.Models
+@using MudBlazor
+@inject Supabase.Client Supabase
+@inject IDialogService DialogService
+
+<style>
+    /* 다이얼로그 전용 밤나비 스타일 보정 */
+    .mud-dialog .mud-dialog-title {
+        color: #A29BFE !important;
+        font-weight: 900;
+    }
+
+    .mud-dialog .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-dialog .mud-input-root-outlined {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .mud-dialog .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+    }
+
+    .mud-dialog-paper {
+        background: rgba(30, 30, 45, 0.95) !important;
+        border: 1px solid rgba(162, 155, 254, 0.3) !important;
+    }
+</style>
+
+<MudDialog Class="mud-dialog-paper">
+    <DialogContent>
+        <MudForm @bind-IsValid="@success">
+            <MudStack Spacing="3" Class="mt-2">
+                @* 🚩 0. 서버 검색 및 선택 *@
+                <MudSelect T="string" Label="서버" @bind-Value="Character.ServerId" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var server in SSM.Models.Character.ServerList)
+                    {
+                        <MudSelectItem Value="@server.Key">@server.Value</MudSelectItem>
+                    }
+                </MudSelect>
+
+                @* 1. 캐릭터 기본 정보 *@
+                <MudTextField @bind-Value="Character.Char_name" Label="캐릭터명" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+
+                @* 2. 직업 검색 및 선택 *@
+                <MudAutocomplete T="JobMaster"
+                                 Label="직업 검색"
+                                 Value="selectedJob"
+                                 ValueChanged="OnJobChanged"
+                                 SearchFunc="@SearchJobs"
+                                 ToStringFunc="@(j => j?.JobName)"
+                                 Required="true"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Dense="true"
+                                 AdornmentIcon="@Icons.Material.Filled.Search"
+                                 AdornmentColor="Color.Primary"
+                                 MaxItems="null"
+                                 ResetValueOnEmptyText="true"
+                                 CoerceText="false"
+                                 CoerceValue="false" />
+
+                @* 💡 Is_Support 값에 따라 입력 필드 자동 전환 *@
+                @if (Character.Is_Support)
+                {
+                    <MudNumericField @bind-Value="Character.Spec" Label="버프력" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" />
+                }
+                else
+                {
+                    <MudText Typo="Typo.subtitle2" Color="Color.Primary"><b>딜량 수정 (억/만)</b></MudText>
+                    <MudStack Row="true" Spacing="2">
+                        <MudNumericField T="long" @bind-Value="eok" Label="억" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" Adornment="Adornment.End" AdornmentText="억" />
+                        <MudNumericField T="long" @bind-Value="man" Label="만" Variant="Variant.Outlined" Margin="Margin.Dense" HideSpinButtons="true" Adornment="Adornment.End" AdornmentText="만" />
+                    </MudStack>
+                }
+            </MudStack>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Style="color: rgba(255,255,255,0.7);">취소</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="@(!success || selectedJob == null)" Style="background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: white; font-weight: 700;">수정 완료</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
+    [Parameter] public Character Character { get; set; } = new();
+
+    private List<JobMaster> jobMasterList = new();
+    private JobMaster? selectedJob;
+    private bool success;
+    private long eok;
+    private long man;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. 모든 직업 목록 로드
+        var result = await Supabase.From<JobMaster>().Where(x => x.IsActive == true).Get();
+        jobMasterList = result.Models.OrderBy(x => x.JobName).ToList();
+
+        // 2. 현재 캐릭터의 직업 정보 매칭
+        selectedJob = jobMasterList.FirstOrDefault(x => x.JobName == Character.Job);
+
+        // 🚩 서버 정보가 혹시 비어있다면 카인으로 기본 할당 (방어 코드)
+        if (string.IsNullOrWhiteSpace(Character.ServerId))
+        {
+            Character.ServerId = "cain";
+        }
+
+        // 3. 딜러일 경우 기존 Spec 값을 억/만으로 분리하여 필드에 채움
+        if (Character.Spec.HasValue && !Character.Is_Support)
+        {
+            long total = (long)Character.Spec.Value;
+            eok = total / 100000000;
+            man = (total % 100000000) / 10000;
+        }
+    }
+
+    private async Task<IEnumerable<JobMaster>> SearchJobs(string value, CancellationToken token)
+    {
+        if (string.IsNullOrEmpty(value)) return jobMasterList;
+        return jobMasterList.Where(x => x.JobName.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private void OnJobChanged(JobMaster job)
+    {
+        selectedJob = job;
+        if (job != null)
+        {
+            Character.Job = job.JobName;
+            Character.Is_Support = job.IsSupport; // 💡 직업 선택 시 내부 판정값 자동 갱신
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task Submit()
+    {
+        try
+        {
+            // 딜러(Is_Support == false)인 경우 입력된 억/만 값을 합산하여 Spec에 저장
+            if (!Character.Is_Support)
+            {
+                Character.Spec = (eok * 100000000) + (man * 10000);
+            }
+
+            Character.UpdatedAt = DateTime.UtcNow; // 🚩 UTC 기준으로 업데이트 시간 기록
+            await Supabase.From<Character>().Update(Character);
+
+            await DialogService.ShowMessageBox("수정 완료", $"[{Character.ServerName}] {Character.Char_name}의 정보가 수정되었습니다.", "확인");
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            // 🚩 유니크 제약 조건 검사 (수정 시에도 중복 체크)
+            if (ex.Message.Contains("23505") || ex.Message.Contains("unique"))
+            {
+                await DialogService.ShowMessageBox("수정 실패", $"[{Character.ServerName}] 서버에 '{Character.Char_name}'(은)는 이미 등록되어 있습니다.");
+            }
+            else
+            {
+                await DialogService.ShowMessageBox("수정 실패", ex.Message, "확인");
+            }
+        }
+    }
+}

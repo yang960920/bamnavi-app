@@ -1,0 +1,486 @@
+﻿@page "/rankings-new"
+@using SSM.Models
+@using SSM.Shared
+@using Supabase.Postgrest
+@inject Supabase.Client SupaClient
+@inject IDialogService DialogService
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 12px !important;
+        color: white !important;
+    }
+
+    /* 📱 모바일 탭 텍스트 크기 축소 */
+    .custom-tabs .mud-tab {
+        color: #8E9AAF !important;
+        font-weight: 700;
+        font-size: 0.85rem !important;
+        min-width: 80px;
+    }
+
+    @@media (max-width: 600px) {
+        .custom-tabs .mud-tab {
+            font-size: 0.75rem !important;
+            min-width: 60px;
+            padding: 0 8px;
+        }
+    }
+
+    .mud-tab-active {
+        color: #A29BFE !important;
+        background: rgba(162, 155, 254, 0.1) !important;
+    }
+
+    .rank-item {
+        background: rgba(0, 0, 0, 0.3) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+        padding: 10px 12px;
+    }
+
+    .job-card {
+        background: rgba(0, 0, 0, 0.4) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 10px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+        .job-card:hover {
+            transform: translateY(-3px);
+            border-color: #A29BFE;
+        }
+
+    /* 🎨 색상 정의 */
+    .color-dealer {
+        color: #A29BFE !important;
+        font-weight: 900;
+    }
+
+    .color-support {
+        color: #FDA7DF !important;
+        font-weight: 900;
+    }
+
+    .color-up {
+        color: #FF5252 !important;
+        font-weight: 900;
+    }
+
+    .color-down {
+        color: #448AFF !important;
+        font-weight: 900;
+    }
+
+    .color-none {
+        color: #8E9AAF !important;
+        opacity: 0.6;
+    }
+
+    .gold-rank {
+        color: #FFD700;
+        font-weight: 900;
+    }
+
+    .silver-rank {
+        color: #C0C0C0;
+        font-weight: 900;
+    }
+
+    .bronze-rank {
+        color: #CD7F32;
+        font-weight: 900;
+    }
+
+    /* 📱 모바일 제목/기준 안내 줄바꿈 방지 */
+    .header-box {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+
+    .title-text {
+        font-size: 1.25rem;
+        font-weight: 900;
+        color: white;
+        white-space: nowrap;
+    }
+
+    .guide-text {
+        font-size: 0.65rem;
+        color: rgba(255,255,255,0.3);
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    @@media (max-width: 600px) {
+        .title-text {
+            font-size: 1rem;
+        }
+
+        .guide-text {
+            font-size: 0.55rem;
+        }
+    }
+
+    .pagination-box {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 0 0 12px 12px;
+    }
+
+    .exclude-toggle-box {
+        display: flex;
+        align-items: center;
+        background: rgba(162, 155, 254, 0.1) !important;
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 20px !important;
+        padding: 2px 8px;
+        flex-shrink: 0;
+    }
+
+    .spec-label {
+        font-size: 0.55rem;
+        opacity: 0.6;
+        margin-left: 1px;
+        white-space: nowrap;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4 mt-sm-6">
+    @* --- 헤더 섹션 (모바일 최적화) --- *@
+    <div class="header-box mb-4">
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.WorkspacePremium" Style="color: #A29BFE;" Size="Size.Small" Class="d-sm-none" />
+            <MudIcon Icon="@Icons.Material.Filled.WorkspacePremium" Style="color: #A29BFE;" Size="Size.Medium" Class="d-none d-sm-block" />
+            <span class="title-text">밤나비 명예의 전당</span>
+        </div>
+        <div class="d-flex align-center gap-2">
+            <span class="guide-text d-none d-md-inline">* 순위 변동 @_yesterdayLabel 기준</span>
+            <div class="exclude-toggle-box">
+                <MudSwitch T="bool" Value="@isExcludeDanjoo" ValueChanged="OnExcludeDanjooChanged" Color="Color.Info" Size="Size.Small" />
+                <MudText Typo="Typo.caption" Style="color: #A29BFE; font-weight: 900; font-size: 0.7rem;">길마 제외</MudText>
+            </div>
+        </div>
+    </div>
+    @* 모바일에서만 보이는 한 줄 가이드 *@
+    <div class="d-md-none mb-4 text-right">
+        <span class="guide-text">* 변동 기준: @_yesterdayLabel</span>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="d-flex flex-column align-center justify-center py-16">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Class="mt-4" Style="color: rgba(255,255,255,0.5)">기록을 분석하는 중...</MudText>
+        </div>
+    }
+    else
+    {
+        <MudTabs Elevation="0" Rounded="true" Class="custom-tabs" ApplyEffectsToContainer="true" SliderColor="Color.Info">
+            @* --- 탭 1: 딜러 랭킹 --- *@
+            <MudTabPanel Text="딜러 랭킹" Icon="@Icons.Material.Filled.Bolt">
+                <div class="glass-panel">
+                    @foreach (var (item, index) in PagedDealers.Select((v, i) => (v, i)))
+                    {
+                        var globalIndex = (dealerPage - 1) * pageSize + index + 1;
+                        <div class="rank-item d-flex align-center justify-space-between">
+                            <div class="d-flex align-center" style="max-width: 60%;">
+                                <div class="mr-3 text-center" style="min-width: 35px;">
+                                    <MudText Class="@GetRankClass(globalIndex)" Style="font-weight:900; font-size: 0.9rem;">@globalIndex</MudText>
+                                    @RenderRankDiff(item.RankDiff)
+                                </div>
+                                <div class="text-truncate">
+                                    <MudText Style="color: white; font-weight: 700; font-size: 0.85rem;" Class="text-truncate">@item.CharName <small style="color:#8E9AAF; font-weight: 400;">@item.Job</small></MudText>
+                                    <MudText Style="color: #8E9AAF; font-size: 0.7rem;" Class="text-truncate">@item.AdventureName</MudText>
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column align-end" style="min-width: 35%;">
+                                <MudText Class="color-dealer" Style="font-size: 0.9rem;">@FormatValue(item.Spec, false)</MudText>
+                                <div class="d-flex justify-end gap-1 mt-1">
+                                    @RenderSpecDiff(item.DiffDay, _yesterdayLabel)
+                                    @RenderSpecDiff(item.DiffMonth, _monthStartLabel)
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="d-flex justify-center py-2 pagination-box">
+                        <MudPagination Color="Color.Info" Count="@DealerPageCount" Selected="@dealerPage" SelectedChanged="OnDealerPageChanged" Size="Size.Small" />
+                    </div>
+                </div>
+            </MudTabPanel>
+
+            @* --- 탭 2: 버퍼 랭킹 --- *@
+            <MudTabPanel Text="버퍼 랭킹" Icon="@Icons.Material.Filled.AutoFixNormal">
+                <div class="glass-panel">
+                    @foreach (var (item, index) in PagedBuffers.Select((v, i) => (v, i)))
+                    {
+                        var globalIndex = (bufferPage - 1) * pageSize + index + 1;
+                        <div class="rank-item d-flex align-center justify-space-between">
+                            <div class="d-flex align-center" style="max-width: 60%;">
+                                <div class="mr-3 text-center" style="min-width: 35px;">
+                                    <MudText Class="@GetRankClass(globalIndex)" Style="font-weight:900; font-size: 0.9rem;">@globalIndex</MudText>
+                                    @RenderRankDiff(item.RankDiff)
+                                </div>
+                                <div class="text-truncate">
+                                    <MudText Style="color: white; font-weight: 700; font-size: 0.85rem;" Class="text-truncate">@item.CharName <small style="color:#8E9AAF; font-weight: 400;">@item.Job</small></MudText>
+                                    <MudText Style="color: #8E9AAF; font-size: 0.7rem;" Class="text-truncate">@item.AdventureName</MudText>
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column align-end" style="min-width: 35%;">
+                                <MudText Class="color-support" Style="font-size: 0.9rem;">@FormatValue(item.Spec, true)</MudText>
+                                <div class="d-flex justify-end gap-1 mt-1">
+                                    @RenderSpecDiff(item.DiffDay, _yesterdayLabel)
+                                    @RenderSpecDiff(item.DiffMonth, _monthStartLabel)
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="d-flex justify-center py-2 pagination-box">
+                        <MudPagination Color="Color.Secondary" Count="@BufferPageCount" Selected="@bufferPage" SelectedChanged="OnBufferPageChanged" Size="Size.Small" />
+                    </div>
+                </div>
+            </MudTabPanel>
+
+            @* --- 탭 3: 직업별 순위 --- *@
+            <MudTabPanel Text="직업별" Icon="@Icons.Material.Filled.Stars">
+                <div class="glass-panel pa-3 pa-sm-5">
+                    @* 점유율 TOP 5 *@
+                    <div class="mb-6 pa-3 rounded-lg" style="background: rgba(162, 155, 254, 0.05); border: 1px dashed rgba(162, 155, 254, 0.2);">
+                        <div class="d-flex align-center mb-3">
+                            <MudIcon Icon="@Icons.Material.Filled.PieChart" Style="color: #A29BFE; font-size: 1rem;" Class="mr-2" />
+                            <MudText Typo="Typo.caption" Style="color: white; font-weight: 900;">명예의 전당 점유율 TOP 5</MudText>
+                        </div>
+                        <MudGrid Spacing="1" Justify="Justify.Center">
+                            @foreach (var share in _adventureShares)
+                            {
+                                <MudItem xs="4" sm="2">
+                                    <div class="d-flex flex-column align-center">
+                                        <MudText Style="font-size: 0.55rem;" Class="@GetRankClass(share.DisplayRank)">@(share.DisplayRank)위</MudText>
+                                        <MudText Style="color: white; font-weight: 700; font-size: 0.7rem;" Class="text-truncate">@share.Name</MudText>
+                                        <MudText Style="color: #A29BFE; font-weight: 900; font-size: 0.85rem;" Class="mt-1">@share.Count <small style="font-size:0.6rem">개</small></MudText>
+                                    </div>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </div>
+
+                    <div class="mb-6">
+                        <MudText Typo="Typo.caption" Class="color-dealer mb-2 d-block">⚔️ 딜러 부문</MudText>
+                        <MudGrid Spacing="1">
+                            @foreach (var rank in _dealerJobBests)
+                            {
+                                <MudItem xs="6" sm="4" md="3" lg="2">
+                                    <div class="pa-2 job-card" @onclick="@(() => ShowJobDetails(rank.Job))">
+                                        <MudText Style="color: #8E9AAF; font-size: 0.6rem;">@rank.Job</MudText>
+                                        <MudText Style="color: white; font-weight: 800; font-size: 0.75rem;" Class="text-truncate">👑 @rank.CharName</MudText>
+                                        <MudText Style="color: #A29BFE; font-size: 0.65rem; font-weight: 900;" Class="mt-1">@FormatValue(rank.Spec, false)</MudText>
+                                    </div>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </div>
+                    <div>
+                        <MudText Typo="Typo.caption" Class="color-support mb-2 d-block">🪄 버퍼 부문</MudText>
+                        <MudGrid Spacing="1">
+                            @foreach (var rank in _bufferJobBests)
+                            {
+                                <MudItem xs="6" sm="4" md="3" lg="2">
+                                    <div class="pa-2 job-card" @onclick="@(() => ShowJobDetails(rank.Job))">
+                                        <MudText Style="color: #8E9AAF; font-size: 0.6rem;">@rank.Job</MudText>
+                                        <MudText Style="color: white; font-weight: 800; font-size: 0.75rem;" Class="text-truncate">👑 @rank.CharName</MudText>
+                                        <MudText Style="color: #FDA7DF; font-size: 0.65rem; font-weight: 900;" Class="mt-1">@FormatValue(rank.Spec, true)</MudText>
+                                    </div>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </div>
+                </div>
+            </MudTabPanel>
+        </MudTabs>
+    }
+</MudContainer>
+
+@code {
+    private List<RankRow> _allRawData = new();
+    private List<RankRow> _dealerJobBests = new();
+    private List<RankRow> _bufferJobBests = new();
+    private List<RankRow> _allDealers = new();
+    private List<RankRow> _allBuffers = new();
+    private List<ShareRow> _adventureShares = new();
+
+    private bool isExcludeDanjoo = false;
+    private bool isLoading = true;
+
+    private string _yesterdayLabel = "";
+    private string _monthStartLabel = "";
+
+    private int pageSize = 100;
+    private int dealerPage = 1;
+    private int bufferPage = 1;
+
+    private IEnumerable<RankRow> PagedDealers => _allDealers.Skip((dealerPage - 1) * pageSize).Take(pageSize);
+    private IEnumerable<RankRow> PagedBuffers => _allBuffers.Skip((bufferPage - 1) * pageSize).Take(pageSize);
+    private int DealerPageCount => (int)Math.Ceiling((double)_allDealers.Count / pageSize);
+    private int BufferPageCount => (int)Math.Ceiling((double)_allBuffers.Count / pageSize);
+
+    protected override async Task OnInitializedAsync() => await LoadRankings();
+
+    private async Task LoadRankings()
+    {
+        try
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            var today = DateTime.Today;
+            var yesterday = today.AddDays(-1);
+            var monthStart = new DateTime(today.Year, today.Month, 1);
+
+            _yesterdayLabel = yesterday.ToString("MM.dd");
+            _monthStartLabel = monthStart.ToString("MM.dd");
+
+            var yesterdayStr = yesterday.ToString("yyyy-MM-dd");
+            var monthStartStr = monthStart.ToString("yyyy-MM-dd");
+
+            var advRes = await SupaClient.From<Adventure>().Get();
+            var charRes = await SupaClient.From<Character>().Get();
+
+            var histRes = await SupaClient.From<CharacterHistory>()
+                .Filter("log_date", Supabase.Postgrest.Constants.Operator.In, new List<string> { yesterdayStr, monthStartStr })
+                .Get();
+
+            if (charRes.Models != null && advRes.Models != null)
+            {
+                var histories = histRes.Models ?? new List<CharacterHistory>();
+                var adventures = advRes.Models;
+
+                _allRawData = charRes.Models.Select(c =>
+                {
+                    var adv = adventures.FirstOrDefault(a => a.Id == c.AdventureId);
+                    var hDay = histories.FirstOrDefault(h => h.Char_name == c.Char_name && h.LogDate.ToString("yyyy-MM-dd") == yesterdayStr);
+                    var hMonth = histories.FirstOrDefault(h => h.Char_name == c.Char_name && h.LogDate.ToString("yyyy-MM-dd") == monthStartStr);
+                    return new RankRow
+                        {
+                            AdventureId = (int)c.AdventureId,
+                            AdventureName = adv?.AdventureName ?? "Unknown",
+                            CharName = c.Char_name,
+                            Job = c.Job,
+                            Spec = c.Spec ?? 0,
+                            IsSupport = c.Is_Support,
+                            DiffDay = (c.Spec ?? 0) - (hDay?.Spec ?? (c.Spec ?? 0)),
+                            DiffMonth = (c.Spec ?? 0) - (hMonth?.Spec ?? (c.Spec ?? 0))
+                        };
+                }).ToList();
+
+                ApplyRankingFilter(histories, yesterdayStr);
+            }
+        }
+        finally { isLoading = false; StateHasChanged(); }
+    }
+
+    private void ApplyRankingFilter(List<CharacterHistory> histories = null, string yesterdayStr = "")
+    {
+        var baseData = isExcludeDanjoo ? _allRawData.Where(x => !x.AdventureName.Contains("단주")).ToList() : _allRawData;
+
+        _allDealers = baseData.Where(x => !x.IsSupport).OrderByDescending(x => x.Spec).ToList();
+        _allBuffers = baseData.Where(x => x.IsSupport).OrderByDescending(x => x.Spec).ToList();
+
+        if (histories != null && !string.IsNullOrEmpty(yesterdayStr))
+        {
+            CalculateRankDiff(_allDealers, histories.Where(h => !h.Is_Support && h.LogDate.ToString("yyyy-MM-dd") == yesterdayStr).OrderByDescending(h => h.Spec ?? 0).ToList());
+            CalculateRankDiff(_allBuffers, histories.Where(h => h.Is_Support && h.LogDate.ToString("yyyy-MM-dd") == yesterdayStr).OrderByDescending(h => h.Spec ?? 0).ToList());
+        }
+
+        var jobBests = baseData.GroupBy(x => x.Job).Select(g => g.OrderByDescending(x => x.Spec).First()).ToList();
+        _dealerJobBests = jobBests.Where(x => !x.IsSupport).OrderBy(x => x.Job).ToList();
+        _bufferJobBests = jobBests.Where(x => x.IsSupport).OrderBy(x => x.Job).ToList();
+
+        var rawShares = jobBests.GroupBy(x => new { x.AdventureId, x.AdventureName })
+            .Select(g => new ShareRow { Id = g.Key.AdventureId, Name = g.Key.AdventureName, Count = g.Count() })
+            .OrderByDescending(x => x.Count).ThenBy(x => x.Id).ToList();
+
+        int currentRank = 1; int lastCount = -1;
+        for (int i = 0; i < rawShares.Count; i++)
+        {
+            if (rawShares[i].Count != lastCount) currentRank = i + 1;
+            rawShares[i].DisplayRank = currentRank; lastCount = rawShares[i].Count;
+        }
+        _adventureShares = rawShares.Take(5).ToList();
+
+        dealerPage = 1; bufferPage = 1;
+    }
+
+    private void OnDealerPageChanged(int page) { dealerPage = page; StateHasChanged(); }
+    private void OnBufferPageChanged(int page) { bufferPage = page; StateHasChanged(); }
+
+    private void CalculateRankDiff(List<RankRow> current, List<CharacterHistory> old)
+    {
+        foreach (var c in current)
+        {
+            int oldRank = old.FindIndex(h => h.Char_name == c.CharName) + 1;
+            c.RankDiff = (oldRank > 0) ? (oldRank - (current.IndexOf(c) + 1)) : 0;
+        }
+    }
+
+    private void OnExcludeDanjooChanged(bool val) { isExcludeDanjoo = val; ApplyRankingFilter(); }
+
+    private async Task ShowJobDetails(string jobName)
+    {
+        var baseData = isExcludeDanjoo ? _allRawData.Where(x => !x.AdventureName.Contains("단주")).ToList() : _allRawData;
+        var top3 = baseData.Where(x => x.Job == jobName).OrderByDescending(x => x.Spec).Take(3).ToList();
+        var parameters = new DialogParameters { ["Top3List"] = top3, ["JobName"] = jobName };
+        await DialogService.ShowAsync<JobDetailDialog>($"{jobName} 상세 순위", parameters, new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+    }
+
+    private RenderFragment RenderRankDiff(int diff) => __builder =>
+    {
+        if (diff > 0)
+        {
+            <span class="color-up" style="font-size: 0.6rem;">▲@diff</span>
+        }
+        else if (diff < 0)
+        {
+            <span class="color-down" style="font-size: 0.6rem;">▼@Math.Abs(diff)</span>
+        }
+        else
+        {
+            <span class="color-none" style="font-size: 0.6rem;">-</span>
+        }
+    };
+
+    private RenderFragment RenderSpecDiff(double diff, string label) => __builder =>
+    {
+        if (diff > 0)
+        {
+            <span class="color-up" style="font-size: 0.65rem;">▲@FormatDiffValue(diff)<small class="spec-label" style="color:rgba(255,82,82,0.6)">@label</small></span>
+        }
+        else if (diff < 0)
+        {
+            <span class="color-down" style="font-size: 0.65rem;">▼@FormatDiffValue(Math.Abs(diff))<small class="spec-label" style="color:rgba(68,138,255,0.6)">@label</small></span>
+        }
+        else
+        {
+            <span class="color-none" style="font-size: 0.65rem;">- <small class="spec-label">@label</small></span>
+        }
+    };
+
+    private string FormatDiffValue(double val) => val >= 100000000 ? $"{(val / 100000000):N1}억" : (val >= 10000 ? $"{(val / 10000):N0}만" : val.ToString("N0"));
+    private string FormatValue(double val, bool isSupport)
+    {
+        if (isSupport) return val.ToString("N0");
+        long eok = (long)(val / 100000000); long man = (long)((val % 100000000) / 10000);
+        return $"{(eok > 0 ? eok + "억 " : "")}{(man > 0 ? man + "만" : "")}".Trim() ?? "0";
+    }
+    private string GetRankClass(int rank) => rank switch { 1 => "gold-rank", 2 => "silver-rank", 3 => "bronze-rank", _ => "" };
+
+    public class ShareRow { public int Id { get; set; } public string Name { get; set; } = ""; public int Count { get; set; } public int DisplayRank { get; set; } }
+}

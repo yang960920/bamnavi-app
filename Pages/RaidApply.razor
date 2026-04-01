@@ -1,0 +1,387 @@
+﻿@page "/raids/apply"
+@using SSM.Models
+@using SSM.Services
+@using Supabase.Postgrest
+@using SSM.Shared
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    .raid-apply-card {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 16px !important;
+        color: white !important;
+        transition: all 0.3s ease;
+    }
+
+        .raid-apply-card:hover {
+            transform: translateY(-5px);
+            background: rgba(20, 20, 45, 0.8) !important;
+            border-color: rgba(162, 155, 254, 0.4) !important;
+        }
+
+    .raid-bundle-card {
+        border: 1px solid rgba(162, 155, 254, 0.5) !important;
+        box-shadow: 0 0 15px rgba(162, 155, 254, 0.15);
+    }
+
+    .info-box-night {
+        background: rgba(0, 0, 0, 0.3) !important;
+        border-left: 3px solid #A29BFE;
+        border-radius: 4px;
+        color: #E0E6ED !important;
+        font-size: 0.825rem !important;
+    }
+
+    /* 🚩 통합 듀얼 배지 디자인 */
+    .status-dual-badge {
+        display: inline-flex;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        height: 28px;
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 900;
+    }
+
+    .badge-left {
+        padding: 0 8px;
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        height: 100%;
+        min-width: 65px;
+        justify-content: center;
+    }
+
+    .badge-right {
+        padding: 0 8px;
+        display: flex;
+        align-items: center;
+        height: 100%;
+        min-width: 65px;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    /* 랏자리 애니메이션 */
+    .animate-dealer {
+        animation: soft-pulse-dealer 1.5s infinite ease-in-out;
+        border-color: #A29BFE !important;
+        color: #A29BFE !important;
+    }
+
+    .animate-buffer {
+        animation: soft-pulse-buffer 1.5s infinite ease-in-out;
+        border-color: #FDA7DF !important;
+        color: #FDA7DF !important;
+    }
+
+    @@keyframes soft-pulse-dealer {
+        0%, 100% {
+            background: rgba(162, 155, 254, 0.05);
+        }
+
+        50% {
+            background: rgba(162, 155, 254, 0.2);
+        }
+    }
+
+    @@keyframes soft-pulse-buffer {
+        0%, 100% {
+            background: rgba(253, 167, 223, 0.05);
+        }
+
+        50% {
+            background: rgba(253, 167, 223, 0.2);
+        }
+    }
+
+    .color-dealer {
+        color: #A29BFE !important;
+    }
+
+    .color-support {
+        color: #FDA7DF !important;
+    }
+
+    .wait-highlight {
+        color: #ff5252;
+    }
+
+    .waiting-list-area {
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 12px;
+        margin-top: 10px;
+    }
+
+    .waiting-chip {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 2px;
+        border: 1px solid rgba(255,255,255,0.05);
+        background: rgba(0,0,0,0.3);
+    }
+
+    .chip-dealer {
+        color: #A29BFE;
+        border-color: rgba(162, 155, 254, 0.3);
+    }
+
+    .chip-buffer {
+        color: #FDA7DF;
+        border-color: rgba(253, 167, 223, 0.3);
+    }
+
+    .adv-name-small {
+        opacity: 0.4;
+        font-size: 0.6rem;
+    }
+
+    /* 🚩 공통 반응형 버튼 스타일 (PC 크기 고정) */
+    .btn-responsive-nav {
+        width: 100% !important;
+        white-space: nowrap !important;
+        font-weight: 900 !important;
+        color: #A29BFE !important;
+        border: 1px solid rgba(162, 155, 254, 0.4) !important;
+    }
+
+    @@media (min-width: 600px) {
+        .btn-responsive-nav {
+            width: 160px !important;
+            height: 40px !important;
+        }
+    }
+
+    .btn-apply-raid {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900;
+        height: 42px !important;
+    }
+
+    .btn-applied-raid {
+        background: rgba(162, 155, 254, 0.1) !important;
+        color: #A29BFE !important;
+        border: 1px solid rgba(162, 155, 254, 0.4) !important;
+        font-weight: 900;
+        height: 42px !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    @* 헤더 영역: 참여 현황 페이지와 통일 *@
+    <div class="d-flex flex-column flex-sm-row align-start align-sm-center justify-space-between mb-8 gap-4">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Assignment" Style="color: #A29BFE;" Class="mr-3" Size="Size.Medium" />
+            <MudText Typo="Typo.h5" Style="color: white; font-weight: 900; letter-spacing: 1px; white-space: nowrap;">공대 참가 신청</MudText>
+        </div>
+
+        <MudButton Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.FactCheck"
+                   Class="btn-responsive-nav rounded-lg"
+                   Href="/my-raids">
+            내 참여 현황
+        </MudButton>
+    </div>
+
+    @if (raidGroups == null)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+    }
+    else if (!raidGroups.Any())
+    {
+        <div class="raid-apply-card py-16 d-flex flex-column align-center justify-center" style="border-style: dashed !important; background: rgba(255,255,255,0.02) !important;">
+            <MudIcon Icon="@Icons.Material.Filled.GroupOff" Size="Size.Large" Style="color: rgba(162, 155, 254, 0.4);" />
+            <MudText Style="color: rgba(162, 155, 254, 0.6);" Class="mt-4" Typo="Typo.h6">현재 신청 가능한 레이드가 없습니다.</MudText>
+            <MudText Style="color: rgba(162, 155, 254, 0.3);" Typo="Typo.caption" Class="mb-6">공대장님이 공대를 생성할 때까지 잠시만 기다려주세요!</MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="rounded-lg" Href="/my-raids">내 참여 현황 확인</MudButton>
+        </div>
+    }
+    else
+    {
+        @foreach (var dateGroup in raidGroups.GroupBy(x => x.RaidDate.Date).OrderBy(g => g.Key))
+        {
+            <div class="mb-10">
+                <div class="d-flex align-center mb-6">
+                    <MudIcon Icon="@Icons.Material.Filled.EventAvailable" Style="color: #A29BFE;" Size="Size.Small" />
+                    <MudText Typo="Typo.subtitle1" Style="color: white; font-weight: 900; margin-left: 8px;">@dateGroup.Key.ToString("yyyy. MM. dd")</MudText>
+                    <div style="border-bottom: 1px solid rgba(162, 155, 254, 0.3); flex-grow: 1; margin: 0 12px;"></div>
+                </div>
+
+                <MudGrid Spacing="3">
+                    @foreach (var raid in dateGroup.OrderBy(x => x.RaidTime))
+                    {
+                        <MudItem xs="12" sm="6" md="4">
+                            <MudCard Elevation="0" Class="@($"raid-apply-card h-100 d-flex flex-column {(raid.BundleSize > 1 ? "raid-bundle-card" : "")}")">
+                                <MudCardHeader Class="pa-4 pb-2">
+                                    <CardHeaderContent>
+                                        <div class="d-flex align-center justify-space-between mb-1">
+                                            <div class="d-flex align-center">
+                                                @if (raid.BundleSize > 1)
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Class="mr-2" Style="font-weight:900; height:20px;">@($"{raid.BundleSize}연공")</MudChip>
+                                                }
+                                                <MudText Typo="Typo.body1" Style="color: white; font-weight: 900;">@GetRaidName(raid.RaidMetaId)</MudText>
+                                            </div>
+                                            @if (myAppliedStatus.ContainsKey(raid.Id) && myAppliedStatus[raid.Id])
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Style="background: #6c5ce7; color: white; font-size: 0.7rem; height: 20px;" Icon="@Icons.Material.Filled.Check">신청 완료</MudChip>
+                                            }
+                                        </div>
+                                        <MudText Typo="Typo.caption" Style="color: #A29BFE; font-weight: 700;">출발 @raid.RaidTime.ToString(@"hh\:mm")</MudText>
+                                    </CardHeaderContent>
+                                </MudCardHeader>
+
+                                <MudCardContent Class="px-4 py-0 flex-grow-1">
+                                    <div class="pa-3 info-box-night mb-4">
+                                        <MudText Typo="Typo.caption" Style="line-height: 1.5; white-space: pre-line; display: block;">@(string.IsNullOrEmpty(raid.Description) ? "특별한 요청사항이 없습니다." : raid.Description)</MudText>
+                                    </div>
+
+                                    <div class="status-slot pa-4 mb-2">
+                                        @{
+                                            var status = currentStatus.ContainsKey(raid.Id) ? currentStatus[raid.Id] : new RaidStatus();
+                                            int remDealer = raid.MaxDealer - status.ConfirmedDealers;
+                                            int remBuffer = raid.MaxBuffer - status.ConfirmedBuffers;
+                                            int waitDealers = status.WaitingList.Count(w => !w.IsSupport);
+                                            int waitBuffers = status.WaitingList.Count(w => w.IsSupport);
+                                        }
+
+                                        <div class="d-flex align-center justify-space-between mb-3">
+                                            <MudText Typo="Typo.caption" Class="color-dealer">딜러 현황 (@status.ConfirmedDealers/@raid.MaxDealer)</MudText>
+                                            <div class="status-dual-badge @(remDealer == 1 ? "animate-dealer" : "")">
+                                                <div class="badge-left">@(remDealer <= 0 ? "마감" : $"{remDealer}석 잔여")</div>
+                                                <div class="badge-right @(waitDealers > 0 ? "wait-highlight" : "")">신청 @waitDealers</div>
+                                            </div>
+                                        </div>
+
+                                        <div class="d-flex align-center justify-space-between mb-4">
+                                            <MudText Typo="Typo.caption" Class="color-support">버퍼 현황 (@status.ConfirmedBuffers/@raid.MaxBuffer)</MudText>
+                                            <div class="status-dual-badge @(remBuffer == 1 ? "animate-buffer" : "")">
+                                                <div class="badge-left">@(remBuffer <= 0 ? "마감" : $"{remBuffer}석 잔여")</div>
+                                                <div class="badge-right @(waitBuffers > 0 ? "wait-highlight" : "")">신청 @waitBuffers</div>
+                                            </div>
+                                        </div>
+
+                                        @if (status.WaitingList.Any())
+                                        {
+                                            <div class="waiting-list-area">
+                                                <MudText Typo="Typo.caption" Style="color: #A29BFE; font-weight: 900; display: block;" Class="mb-2">📋 미배정 신청 명단 (@status.WaitingList.Count)</MudText>
+                                                <div class="d-flex flex-wrap" style="gap: 2px;">
+                                                    @foreach (var wait in status.WaitingList.OrderBy(w => w.AppliedAt))
+                                                    {
+                                                        <div class="waiting-chip @(wait.IsSupport ? "chip-buffer" : "chip-dealer")">
+                                                            <span style="font-weight: 700;">@wait.Name</span>
+                                                            <span class="adv-name-small">(@wait.AdventureName)</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </MudCardContent>
+
+                                <MudCardActions Class="pa-4 pt-0">
+                                    <MudButton Variant="Variant.Filled" Class="@(myAppliedStatus.ContainsKey(raid.Id) && myAppliedStatus[raid.Id] ? "btn-applied-raid" : "btn-apply-raid")" FullWidth="true" OnClick="@(() => OpenApplyDialog(raid))">
+                                        @(myAppliedStatus.ContainsKey(raid.Id) && myAppliedStatus[raid.Id] ? "신청 정보 확인 / 변경" : (raid.BundleSize > 1 ? $"{raid.BundleSize}연공 참여 신청" : "참가 신청하기"))
+                                    </MudButton>
+                                </MudCardActions>
+                            </MudCard>
+                        </MudItem>
+                    }
+                </MudGrid>
+            </div>
+        }
+    }
+</MudContainer>
+
+@code {
+    private List<RaidGroup> raidGroups;
+    private List<RaidMeta> raidMetas = new();
+
+    public class WaitChar { public string Name { get; set; } = ""; public string AdventureName { get; set; } = ""; public bool IsSupport { get; set; } public DateTimeOffset AppliedAt { get; set; } }
+    public class RaidStatus { public int ConfirmedDealers { get; set; } = 0; public int ConfirmedBuffers { get; set; } = 0; public List<WaitChar> WaitingList { get; set; } = new(); }
+
+    private Dictionary<int, RaidStatus> currentStatus = new();
+    private Dictionary<int, bool> myAppliedStatus = new();
+
+    protected override async Task OnInitializedAsync() { await LoadMetadata(); await LoadActiveRaids(); }
+    private async Task LoadMetadata() { raidMetas = (await SupaClient.From<RaidMeta>().Get()).Models; }
+
+    private async Task LoadActiveRaids()
+    {
+        try
+        {
+            var result = await SupaClient.From<RaidGroup>().Where(x => x.IsClosed == false).Order("raid_date", Ordering.Ascending).Order("raid_time", Ordering.Ascending).Get();
+            raidGroups = result.Models;
+            currentStatus.Clear(); myAppliedStatus.Clear();
+
+            foreach (var raid in raidGroups)
+            {
+                var appRes = await SupaClient.From<RaidApplication>().Where(x => x.RaidId == raid.Id).Get();
+                var apps = appRes.Models;
+                myAppliedStatus[raid.Id] = apps.Any(a => a.AdventureId == AppState.CurrentAdventureId);
+
+                var status = new RaidStatus();
+                if (apps.Any())
+                {
+                    var charIds = apps.Select(a => a.CharacterId).Distinct().ToList();
+                    var advIds = apps.Select(a => a.AdventureId).Distinct().ToList();
+                    var charRes = await SupaClient.From<Character>().Filter(x => x.Id, Operator.In, charIds).Get();
+                    var advRes = await SupaClient.From<Adventure>().Filter(x => x.Id, Operator.In, advIds).Get();
+
+                    var characterMap = charRes.Models.ToDictionary(c => c.Id);
+                    var adventureMap = advRes.Models.ToDictionary(a => a.Id);
+
+                    foreach (var app in apps)
+                    {
+                        if (characterMap.TryGetValue(app.CharacterId, out var character))
+                        {
+                            if (app.Status == "승인")
+                            {
+                                if (character.Is_Support) status.ConfirmedBuffers++; else status.ConfirmedDealers++;
+                            }
+                            if (app.PartyNo == 0)
+                            {
+                                adventureMap.TryGetValue(app.AdventureId, out var adv);
+                                status.WaitingList.Add(new WaitChar { Name = character.Char_name, AdventureName = adv?.AdventureName ?? "알 수 없음", IsSupport = character.Is_Support, AppliedAt = app.AppliedAt });
+                            }
+                        }
+                    }
+                }
+                currentStatus[raid.Id] = status;
+            }
+            StateHasChanged();
+        }
+        catch { raidGroups = new(); }
+    }
+
+    private string GetRaidName(int id) => raidMetas.FirstOrDefault(m => m.Id == id)?.RaidName ?? "알 수 없음";
+
+    private async Task OpenApplyDialog(RaidGroup raid)
+    {
+        var parameters = new DialogParameters { ["RaidId"] = raid.Id, ["RaidName"] = GetRaidName(raid.RaidMetaId) };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<RaidApplyDialog>("공대 신청 정보 입력", parameters, options);
+        await dialog.Result;
+        await LoadActiveRaids();
+        StateHasChanged();
+    }
+}

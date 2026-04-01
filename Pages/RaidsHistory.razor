@@ -1,0 +1,286 @@
+﻿@page "/raids/history"
+@using SSM.Models
+@using SSM.Shared
+@using SSM.Services
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 12px !important;
+        color: white !important;
+    }
+
+    .my-raid-active {
+        border: 2px solid #8E9AAF !important;
+        box-shadow: 0 0 20px rgba(142, 154, 175, 0.3);
+        background: rgba(25, 25, 45, 0.8) !important;
+    }
+
+    .party-card {
+        background: rgba(0, 0, 0, 0.4) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px;
+        height: 100%;
+    }
+
+    .raid-type-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 10px;
+        height: 26px;
+        border-radius: 6px;
+        font-weight: 900;
+        font-size: 0.8rem;
+        min-width: 50px;
+        flex-shrink: 0;
+    }
+
+    .badge-multi {
+        background: rgba(142, 154, 175, 0.15);
+        color: #8E9AAF;
+        border: 1px solid rgba(142, 154, 175, 0.4);
+    }
+
+    .badge-single {
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .title-notice-box {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        padding: 2px 10px;
+        margin-left: 10px;
+        border-left: 2px solid #8E9AAF;
+        display: inline-flex;
+        max-width: 40%;
+        min-width: 0;
+    }
+
+    .description-text-small {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.75rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        pointer-events: none;
+    }
+
+    .bundle-section {
+        border: 1px solid rgba(142, 154, 175, 0.2);
+        border-radius: 16px;
+        padding: 24px 15px 15px 15px;
+        margin-top: 18px;
+        margin-bottom: 25px;
+        background: rgba(142, 154, 175, 0.03);
+        position: relative;
+    }
+
+    .bundle-badge {
+        position: absolute;
+        top: -14px;
+        left: 20px;
+        background: #546e7a;
+        color: white;
+        padding: 1px 10px;
+        border-radius: 10px;
+        font-weight: 900;
+        font-size: 0.7rem;
+        z-index: 5;
+    }
+
+    .week-nav-paper {
+        background: rgba(20, 20, 40, 0.8) !important;
+        border: 1px solid rgba(162, 155, 254, 0.3) !important;
+    }
+
+    /* 🚩 딜러/버퍼 전용 컬러 */
+    .txt-dealer {
+        color: #A29BFE !important;
+    }
+
+    .txt-support {
+        color: #FDA7DF !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <div class="d-flex align-center justify-space-between flex-wrap gap-4 mb-6">
+        <div class="d-flex align-center gap-3">
+            <MudIcon Icon="@Icons.Material.Filled.History" Style="color: #8E9AAF;" Size="Size.Large" />
+            <MudText Typo="Typo.h5" Style="color: #8E9AAF; font-weight: 900;">종료된 레이드 이력</MudText>
+        </div>
+        <div class="d-flex align-center gap-2">
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowBackIos" OnClick="GoPrev" Size="Size.Small" Style="color:white;" />
+            <MudPaper Elevation="0" Class="px-4 py-1 d-flex align-center week-nav-paper">
+                <MudText Style="color: white; font-weight: bold;">@weekStart.ToString("MM/dd") ~ @weekEnd.ToString("MM/dd")</MudText>
+            </MudPaper>
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowForwardIos" OnClick="GoNext" Size="Size.Small" Style="color:white;" />
+            <MudButton OnClick="SetCurrent" Style="color:#A29BFE; font-weight:900;">이번 주</MudButton>
+        </div>
+    </div>
+
+    @if (isProcessing)
+    {
+        <MudProgressLinear Color="Color.Default" Indeterminate="true" Class="my-4" />
+    }
+    else if (!_pastRaids.Any())
+    {
+        <div class="glass-panel py-10 d-flex justify-center" style="border-style: dashed !important; background:rgba(255,255,255,0.02); border-radius:12px;">
+            <MudText Style="color: rgba(255,255,255,0.4);">해당 기간의 기록이 없습니다.</MudText>
+        </div>
+    }
+    else
+    {
+        <MudExpansionPanels MultiExpansion="true">
+            @foreach (var raid in _pastRaids)
+            {
+                var isMyRaid = myRaidIds.Contains(raid.Id);
+                var meta = raidMetas.FirstOrDefault(m => m.Id == raid.RaidMetaId);
+                int totalPartyCount = (int)Math.Ceiling((raid.MaxDealer + raid.MaxBuffer) / 4.0);
+                int partiesPerBundle = (int)Math.Max(1, Math.Ceiling((meta?.MaxPlayers ?? 4) / 4.0));
+                int totalBundles = (int)Math.Ceiling((double)totalPartyCount / partiesPerBundle);
+
+                <MudExpansionPanel Class="@(isMyRaid ? "glass-panel my-raid-active mb-3" : "glass-panel mb-3")">
+                    <TitleContent>
+                        <div class="d-flex align-center w-100 pr-4 overflow-hidden">
+                            <div class="raid-type-badge @(totalBundles > 1 ? "badge-multi" : "badge-single") mr-3">
+                                @(totalBundles > 1 ? $"{totalBundles}연공" : "단일")
+                            </div>
+
+                            <div class="flex-shrink-0">
+                                <MudText Typo="Typo.subtitle1" Style="font-weight:900; white-space:nowrap;">@meta?.RaidName</MudText>
+                                <MudText Typo="Typo.caption" Style="color:rgba(255,255,255,0.4); white-space:nowrap;">@raid.RaidDate.ToString("MM/dd")</MudText>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(raid.Description))
+                            {
+                                <div class="title-notice-box">
+                                    <MudText Class="description-text-small">@raid.Description</MudText>
+                                </div>
+                            }
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        @if (!string.IsNullOrEmpty(raid.Description))
+                        {
+                            <div class="mb-4 pa-3" style="background:rgba(255,255,255,0.05); border-left:4px solid #8E9AAF;">
+                                <MudText Typo="Typo.body2" Style="color: #FFFFFF; white-space: pre-line;">@raid.Description</MudText>
+                            </div>
+                        }
+
+                        <div class="mt-2">
+                            @for (int b = 1; b <= (totalBundles > 0 ? totalBundles : 1); b++)
+                            {
+                                var bIdx = b;
+                                <div class="@(totalBundles > 1 ? "bundle-section" : "")">
+                                    @if (totalBundles > 1)
+                                    {
+                                        <div class="bundle-badge">@($"{bIdx}기")</div>
+                                    }
+                                    <MudGrid Spacing="2">
+                                        @for (int p = (bIdx - 1) * partiesPerBundle + 1; p <= Math.Min(bIdx * partiesPerBundle, totalPartyCount); p++)
+                                        {
+                                            var pNo = p;
+                                            <MudItem xs="12" sm="6">
+                                                <div class="pa-3 party-card">
+                                                    <MudText Typo="Typo.caption" Style="color:#8E9AAF; font-weight:900;" Class="mb-2 d-block">제 @pNo 파티</MudText>
+
+                                                    @* 🚩 정렬 로직: Is_Support가 false(0)인 딜러 우선, true(1)인 버퍼가 뒤로 *@
+                                                    @foreach (var m in raidApplications
+                                                   .Where(a => a.RaidId == raid.Id && a.PartyNo == pNo)
+                                                   .Select(a => new { App = a, Char = characters.FirstOrDefault(c => c.Id == a.CharacterId) })
+                                                   .OrderBy(x => x.Char?.Is_Support ?? false))
+                                                    {
+                                                        var isMe = m.App.AdventureId == AppState.CurrentAdventureId;
+                                                        var isSup = m.Char?.Is_Support ?? false;
+
+                                                        <div class="d-flex align-center justify-space-between pa-2 rounded mb-1"
+                                                             style="@(isMe ? "background:rgba(142,154,175,0.2); border:1px solid #8E9AAF;" : "background:rgba(255,255,255,0.03);")">
+
+                                                            <div class="d-flex align-center gap-2">
+                                                                <MudText Typo="Typo.caption" Class="@(isSup ? "txt-support" : "txt-dealer")" Style="font-weight:900; font-size:0.65rem;">
+                                                                    @(isSup ? "[버퍼]" : "[딜러]")
+                                                                </MudText>
+                                                                <MudText Typo="Typo.caption" Style="@(isMe ? "font-weight:900; color:white;" : "color:white;")">@m.Char?.Char_name</MudText>
+                                                            </div>
+
+                                                            <MudText Typo="Typo.caption" Style="color:#8E9AAF; font-size:0.7rem;">
+                                                                @(isSup ? m.Char?.Spec?.ToString("N0") : FormatDamage(m.Char?.Spec ?? 0))
+                                                            </MudText>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </MudItem>
+                                        }
+                                    </MudGrid>
+                                </div>
+                            }
+                        </div>
+                    </ChildContent>
+                </MudExpansionPanel>
+            }
+        </MudExpansionPanels>
+    }
+</MudContainer>
+
+@code {
+    private DateTime weekStart, weekEnd;
+    private List<RaidGroup> _pastRaids = new();
+    private List<RaidMeta> raidMetas = new();
+    private List<RaidApplication> raidApplications = new();
+    private List<Character> characters = new();
+    private HashSet<int> myRaidIds = new();
+    private bool isProcessing = true;
+
+    protected override async Task OnInitializedAsync() { SetCurrentWeek(); await LoadPastRaids(); }
+
+    private void SetCurrentWeek()
+    {
+        DateTime today = DateTime.Today;
+        int diff = (7 + (today.DayOfWeek - DayOfWeek.Thursday)) % 7;
+        weekStart = today.AddDays(-diff).Date;
+        weekEnd = weekStart.AddDays(6).Date;
+    }
+
+    private async Task LoadPastRaids()
+    {
+        try
+        {
+            isProcessing = true;
+            raidMetas = (await SupaClient.From<RaidMeta>().Get()).Models;
+            _pastRaids = (await SupaClient.From<RaidGroup>().Match(new Dictionary<string, string> { { "is_closed", "true" } })
+                .Filter("raid_date", Operator.LessThan, DateTime.Today.ToString("yyyy-MM-dd"))
+                .Filter("raid_date", Operator.GreaterThanOrEqual, weekStart.ToString("yyyy-MM-dd"))
+                .Filter("raid_date", Operator.LessThanOrEqual, weekEnd.ToString("yyyy-MM-dd"))
+                .Order("raid_date", Ordering.Descending).Get()).Models;
+
+            if (_pastRaids.Any())
+            {
+                var raidIds = _pastRaids.Select(r => r.Id).ToList();
+                raidApplications = (await SupaClient.From<RaidApplication>().Filter("raid_id", Operator.In, raidIds).Where(x => x.Status == "승인").Get()).Models;
+                myRaidIds = raidApplications.Where(a => a.AdventureId == AppState.CurrentAdventureId).Select(a => a.RaidId).ToHashSet();
+                var charIds = raidApplications.Select(a => a.CharacterId).Distinct().ToList();
+                if (charIds.Any()) characters = (await SupaClient.From<Character>().Filter("id", Operator.In, charIds).Get()).Models;
+            }
+        }
+        finally { isProcessing = false; StateHasChanged(); }
+    }
+
+    private async Task GoPrev() { weekStart = weekStart.AddDays(-7); weekEnd = weekEnd.AddDays(-7); await LoadPastRaids(); }
+    private async Task GoNext() { weekStart = weekStart.AddDays(7); weekEnd = weekEnd.AddDays(7); await LoadPastRaids(); }
+    private async Task SetCurrent() { SetCurrentWeek(); await LoadPastRaids(); }
+    private string FormatDamage(double v) { long d = (long)v; long e = d / 100000000; long m = (d % 100000000) / 10000; return e > 0 ? $"{e}억 {m}만" : $"{m}만"; }
+}

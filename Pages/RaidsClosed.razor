@@ -1,0 +1,397 @@
+﻿@page "/raids/closed"
+@using SSM.Models
+@using SSM.Shared
+@using SSM.Services
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@using System.Net.Http.Json
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+@inject IJSRuntime JSRuntime
+@inject IDialogService DialogService
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 12px !important;
+        color: white !important;
+    }
+
+    .my-raid-active {
+        border: 2px solid #FDA7DF !important;
+        box-shadow: 0 0 20px rgba(253, 167, 223, 0.3);
+        background: rgba(30, 20, 30, 0.8) !important;
+    }
+
+    .party-card {
+        background: rgba(0, 0, 0, 0.4) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px;
+        height: 100%;
+    }
+
+    .raid-type-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 10px;
+        height: 26px;
+        border-radius: 6px;
+        font-weight: 900;
+        font-size: 0.8rem;
+        min-width: 50px;
+        flex-shrink: 0;
+    }
+
+    .badge-multi {
+        background: rgba(253, 167, 223, 0.15);
+        color: #FDA7DF;
+        border: 1px solid rgba(253, 167, 223, 0.4);
+    }
+
+    .badge-single {
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* 🚩 반응형 타이틀 컨테이너 (복사 버튼 줄 분리) */
+    .raid-title-container {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        gap: 10px;
+    }
+
+    @@media (min-width: 960px) {
+        .raid-title-container {
+            flex-direction: row;
+            align-items: center;
+        }
+    }
+
+    .title-notice-box {
+        background: rgba(253, 167, 223, 0.05);
+        border-radius: 6px;
+        padding: 2px 10px;
+        border-left: 2px solid #FDA7DF;
+        flex: 1;
+        min-width: 0;
+        display: inline-flex;
+        margin-left: 10px;
+    }
+
+    .description-text-small {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.72rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        pointer-events: none;
+    }
+
+    .copy-button-group {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    @@media (min-width: 960px) {
+        .copy-button-group {
+            margin-left: auto;
+        }
+    }
+
+    .bundle-section {
+        border: 1px solid rgba(253, 167, 223, 0.2);
+        border-radius: 16px;
+        padding: 24px 15px 15px 15px;
+        margin-top: 18px;
+        margin-bottom: 25px;
+        background: rgba(253, 167, 223, 0.03);
+        position: relative;
+    }
+
+    .bundle-badge {
+        position: absolute;
+        top: -14px;
+        left: 20px;
+        background: #ef539d;
+        color: white;
+        padding: 1px 10px;
+        border-radius: 10px;
+        font-weight: 900;
+        font-size: 0.7rem;
+        z-index: 5;
+    }
+
+    .txt-dealer {
+        color: #A29BFE !important;
+    }
+
+    .txt-support {
+        color: #FDA7DF !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <div class="d-flex align-center gap-3 mb-6">
+        <MudIcon Icon="@Icons.Material.Filled.LockClock" Style="color: #FDA7DF;" Size="Size.Large" />
+        <MudText Typo="Typo.h5" Style="color: #FDA7DF; font-weight: 900; letter-spacing: 2px;">모집 마감 (출발 예정)</MudText>
+    </div>
+
+    @if (isProcessing)
+    {
+        <MudProgressLinear Color="Color.Secondary" Indeterminate="true" Class="my-4" />
+    }
+    else if (!_closedUpcomingRaids.Any())
+    {
+        <div class="glass-panel py-10 d-flex flex-column align-center justify-center">
+            <MudIcon Icon="@Icons.Material.Filled.GroupOff" Size="Size.Large" Style="color: rgba(162, 155, 254, 0.4);" />
+            <MudText Style="color: rgba(162, 155, 254, 0.6);" Class="mt-2">현재 모집 마감 된 레이드가 없습니다.</MudText>
+        </div>
+    }
+    else
+    {
+        <MudExpansionPanels MultiExpansion="true">
+            @foreach (var raid in _closedUpcomingRaids)
+            {
+                var isMyRaid = myRaidIds.Contains(raid.Id);
+                var meta = raidMetas.FirstOrDefault(m => m.Id == raid.RaidMetaId);
+                int totalPartyCount = (int)Math.Ceiling((raid.MaxDealer + raid.MaxBuffer) / 4.0);
+                int partiesPerBundle = (int)Math.Max(1, Math.Ceiling((meta?.MaxPlayers ?? 4) / 4.0));
+                int totalBundles = (int)Math.Ceiling((double)totalPartyCount / partiesPerBundle);
+
+                <MudExpansionPanel Class="@(isMyRaid ? "glass-panel my-raid-active mb-3" : "glass-panel mb-3")">
+                    <TitleContent>
+                        <div class="raid-title-container">
+                            <div class="d-flex align-center overflow-hidden">
+                                <div class="raid-type-badge @(totalBundles > 1 ? "badge-multi" : "badge-single") mr-3">
+                                    @(totalBundles > 1 ? $"{totalBundles}연공" : "단일")
+                                </div>
+                                <div class="flex-shrink-0">
+                                    <div class="d-flex align-center gap-2">
+                                        <MudText Typo="Typo.subtitle1" Style="font-weight:900;">@meta?.RaidName</MudText>
+                                        @if (isMyRaid)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Style="background: #FDA7DF; color: #050510; font-weight: 900; height: 18px; font-size: 0.6rem;">참여</MudChip>
+                                        }
+                                    </div>
+                                    <MudText Typo="Typo.caption" Style="color:rgba(255,255,255,0.4);">@raid.RaidDate.ToString("MM. dd") | @raid.RaidTime.ToString(@"hh\:mm") 출발</MudText>
+                                </div>
+                                @if (!string.IsNullOrEmpty(raid.Description))
+                                {
+                                    <div class="title-notice-box">
+                                        <MudText Class="description-text-small">@raid.Description</MudText>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="copy-button-group" @onclick:stopPropagation="true">
+                                @if (totalBundles > 0)
+                                {
+                                    <MudButton Variant="Variant.Filled"
+                                               Style="background: #5865F2; color: white; font-weight: 900; font-size: 0.7rem; height: 30px;"
+                                               StartIcon="@Icons.Custom.Brands.Discord"
+                                               OnClick="@(() => SendAllBundlesToDiscord(raid.Id, totalBundles, partiesPerBundle, raid, meta?.RaidName))"
+                                               Class="rounded-lg px-4">
+                                        <MudText>@(totalBundles > 1 ? "전체 명단 전송" : "명단 전송")</MudText>
+                                    </MudButton>
+                                }
+                            </div>
+                        </div>
+                    </TitleContent>
+                    <ChildContent>
+                        @if (!string.IsNullOrEmpty(raid.Description))
+                        {
+                            <div class="raid-notice-box mb-4" style="background: rgba(253,167,223,0.05); border-left: 4px solid #FDA7DF; padding: 10px 16px; margin-top: 5px;">
+                                <MudText Typo="Typo.body2" Style="color: #FFFFFF; white-space: pre-line;">@raid.Description</MudText>
+                            </div>
+                        }
+                        <div class="mt-2">
+                            @for (int b = 1; b <= (totalBundles > 0 ? totalBundles : 1); b++)
+                            {
+                                var bIdx = b;
+                                <div class="@(totalBundles > 1 ? "bundle-section" : "")">
+                                    @if (totalBundles > 1)
+                                    {
+                                        <div class="bundle-badge">@($"{bIdx}기")</div>
+                                    }
+                                    <MudGrid Spacing="2">
+                                        @for (int p = (bIdx - 1) * partiesPerBundle + 1; p <= Math.Min(bIdx * partiesPerBundle, totalPartyCount); p++)
+                                        {
+                                            var pNo = p;
+                                            var displayPartyNo = pNo - ((bIdx - 1) * partiesPerBundle);
+                                            <MudItem xs="12" sm="6">
+                                                <div class="pa-4 party-card">
+                                                    <MudText Typo="Typo.caption" Style="color:#FDA7DF; font-weight:900;" Class="mb-3 d-block">제 @displayPartyNo 파티</MudText>
+                                                    @foreach (var m in raidApplications
+                                                   .Where(a => a.RaidId == raid.Id && a.PartyNo == pNo && a.Status == "승인")
+                                                   .Select(a => new { App = a, Char = characters.FirstOrDefault(c => c.Id == a.CharacterId), Adv = adventures.FirstOrDefault(adv => adv.Id == a.AdventureId) })
+                                                   .OrderBy(x => x.Char?.Is_Support ?? false))
+                                                    {
+                                                        var isMe = m.App.AdventureId == AppState.CurrentAdventureId;
+                                                        var isSup = m.Char?.Is_Support ?? false;
+                                                        string jobName = GetJobName(m.Char?.Job, isSup);
+
+                                                        <div class="d-flex align-center justify-space-between pa-2 rounded mb-1" style="@(isMe ? "background:rgba(253, 167, 223, 0.2);" : "")">
+                                                            <div class="d-flex align-center gap-2 overflow-hidden">
+                                                                <MudText Typo="Typo.caption" Class="@(isSup ? "txt-support" : "txt-dealer")" Style="font-weight:900; font-size:0.65rem; flex-shrink:0;">
+                                                                    @(isSup ? "[버퍼]" : "[딜러]")
+                                                                </MudText>
+                                                                <MudText Typo="Typo.caption" Style="color:white; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">@($"{m.Char?.Char_name}({m.Adv?.AdventureName}) - {jobName}")</MudText>
+                                                            </div>
+                                                            <MudText Typo="Typo.caption" Style="color:#FDA7DF; font-size:0.75rem; font-weight:900; flex-shrink:0;">
+                                                                @(isSup ? m.Char?.Spec?.ToString("N0") : FormatDamage(m.Char?.Spec ?? 0))
+                                                            </MudText>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </MudItem>
+                                        }
+                                    </MudGrid>
+                                </div>
+                            }
+                        </div>
+                    </ChildContent>
+                </MudExpansionPanel>
+            }
+        </MudExpansionPanels>
+    }
+</MudContainer>
+
+@code {
+    private bool isProcessing = true;
+    private List<RaidGroup> _closedUpcomingRaids = new();
+    private List<RaidMeta> raidMetas = new();
+    private List<JobMaster> jobMasters = new();
+    private List<RaidApplication> raidApplications = new();
+    private List<Character> characters = new();
+    private List<Adventure> adventures = new();
+    private HashSet<int> myRaidIds = new();
+
+    protected override async Task OnInitializedAsync() { await LoadData(); }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            isProcessing = true;
+            var todayStr = DateTime.Today.ToString("yyyy-MM-dd");
+            raidMetas = (await SupaClient.From<RaidMeta>().Get()).Models;
+
+            if (!AppState.CachedJobMasters.Any())
+            {
+                AppState.CachedJobMasters = (await SupaClient.From<JobMaster>().Where(x => x.IsActive == true).Get()).Models;
+            }
+            jobMasters = AppState.CachedJobMasters;
+
+            _closedUpcomingRaids = (await SupaClient.From<RaidGroup>().Where(x => x.IsClosed == true).Filter("raid_date", Operator.GreaterThanOrEqual, todayStr)
+                .Order("raid_date", Ordering.Ascending).Order("raid_time", Ordering.Ascending).Get()).Models;
+
+            if (_closedUpcomingRaids.Any())
+            {
+                var raidIds = _closedUpcomingRaids.Select(r => r.Id).ToList();
+                raidApplications = (await SupaClient.From<RaidApplication>().Filter(x => x.RaidId, Operator.In, raidIds).Get()).Models;
+                myRaidIds = raidApplications.Where(a => a.AdventureId == AppState.CurrentAdventureId).Select(a => a.RaidId).ToHashSet();
+                var charIds = raidApplications.Select(a => a.CharacterId).Distinct().ToList();
+                if (charIds.Any()) characters = (await SupaClient.From<Character>().Filter(x => x.Id, Operator.In, charIds).Get()).Models;
+                var advIds = raidApplications.Select(a => a.AdventureId).Distinct().ToList();
+                if (advIds.Any()) adventures = (await SupaClient.From<Adventure>().Filter(x => x.Id, Operator.In, advIds).Get()).Models;
+            }
+        }
+        finally { isProcessing = false; StateHasChanged(); }
+    }
+
+    private string GetJobName(string? jobValue, bool isSupport)
+    {
+        if (string.IsNullOrWhiteSpace(jobValue)) return isSupport ? "버퍼" : "딜러";
+        var job = jobMasters.FirstOrDefault(j => j.Id.ToString() == jobValue || j.JobName == jobValue);
+        return job != null ? job.JobName : (isSupport ? "버퍼" : "딜러");
+    }
+
+    private async Task SendAllBundlesToDiscord(int raidId, int totalBundles, int partiesPerBundle, RaidGroup raid, string? raidName)
+    {
+        try
+        {
+            isProcessing = true;
+            int successCount = 0;
+
+            // 🚩 출발 일시 문자열 생성
+            string raidDateTime = $"{raid.RaidDate.ToString("MM/dd(ddd)")} {raid.RaidTime.ToString(@"hh\:mm")}";
+
+            for (int bIdx = 1; bIdx <= totalBundles; bIdx++)
+            {
+                string baseTitle = !string.IsNullOrWhiteSpace(raid.Description) ? raid.Description.Split('\n')[0].Trim() : "";
+                string finalTag = (totalBundles > 1)
+                    ? (!string.IsNullOrEmpty(baseTitle) ? $"{baseTitle} - {bIdx}기" : $"{bIdx}기")
+                    : (!string.IsNullOrEmpty(baseTitle) ? baseTitle : "명단");
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"### 🦋 {raidName} - {finalTag}");
+                // 🚩 출발 일시 추가
+                sb.AppendLine($"> 📅 **출발 일시: {raidDateTime}**");
+                sb.AppendLine("```ansi");
+
+                int startParty = (bIdx - 1) * partiesPerBundle + 1;
+                int endParty = bIdx * partiesPerBundle;
+                bool hasData = false;
+
+                for (int p = startParty; p <= endParty; p++)
+                {
+                    int displayNo = p - startParty + 1;
+                    var members = raidApplications.Where(a => a.RaidId == raidId && a.Status == "승인" && a.PartyNo == p)
+                        .Select(a => new { Char = characters.FirstOrDefault(c => c.Id == a.CharacterId), Adv = adventures.FirstOrDefault(adv => adv.Id == a.AdventureId) })
+                        .OrderBy(x => x.Char?.Is_Support ?? false)
+                        .Select(x =>
+                        {
+                            string role = (x.Char?.Is_Support ?? false) ? "[버퍼]" : "[딜러]";
+                            return $"{role} {x.Char?.Char_name}({x.Adv?.AdventureName}) - {GetJobName(x.Char?.Job, x.Char?.Is_Support ?? false)}";
+                        }).ToList();
+
+                    if (members.Any())
+                    {
+                        hasData = true;
+                        sb.AppendLine($"[1;35m[{displayNo}파티][0m");
+                        foreach (var m in members) sb.AppendLine($" {m}");
+                        sb.AppendLine();
+                    }
+                }
+                sb.AppendLine("```");
+
+                if (hasData)
+                {
+                    // 🚩 디스코드 봇 이름(username)과 프로필(avatar_url) 설정
+                    var payload = new
+                    {
+                        content = sb.ToString(),
+                        username = "밤나비봇", // <-- 여기서 이름 변경 가능!
+                        //avatar_url = "https://i.imgur.com/wH7V69v.png" // <-- 나비 이미지 주소 (선택)
+                    };
+
+                    string webhookUrl = "https://discord.com/api/webhooks/1476073900873089258/2nbV8zrDb3OLbksfOeThOtsZJlejHsUfUnhpYLQPD9LIdMG24HNNFO4x2I5zA4sCcRKF";
+                    var res = await Http.PostAsJsonAsync(webhookUrl, payload);
+
+                    if (res.IsSuccessStatusCode) successCount++;
+                    if (totalBundles > 1 && bIdx < totalBundles) await Task.Delay(1000);
+                }
+            }
+            await DialogService.ShowMessageBox("전송 완료", $"{successCount}개 기수의 명단 전송을 완료했습니다.");
+        }
+        catch (Exception ex)
+        {
+            await DialogService.ShowMessageBox("오류", $"전송 중 오류: {ex.Message}");
+        }
+        finally { isProcessing = false; StateHasChanged(); }
+    }
+
+    private string FormatDamage(double v) { long d = (long)v; long e = d / 100000000; long m = (d % 100000000) / 10000; return e > 0 ? $"{e}억 {m}만" : $"{m}만"; }
+}

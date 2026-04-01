@@ -1,0 +1,407 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@using SSM.Models
+@using SSM.Services
+@inject AppState AppState
+@inject NavigationManager NavManager
+@inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
+@inject Supabase.Client SupaClient
+
+<style>
+    /* 🚩 [반응형 배경 설정] */
+    .main-background {
+        background-attachment: fixed;
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-position: center top;
+        min-height: 100vh;
+        background-color: #050510;
+        background-image: url('images/1920.jpg');
+    }
+
+    @@media (max-width: 768px) {
+        .main-background {
+            background-image: url('images/1080.jpg');
+            background-attachment: scroll;
+            background-position: center center;
+        }
+    }
+
+    .content-overlay {
+        background: linear-gradient(180deg, rgba(5, 5, 20, 0.2) 0%, rgba(5, 5, 20, 0.85) 100%);
+        min-height: 100vh;
+    }
+
+    .mud-appbar {
+        background-color: rgba(10, 15, 35, 0.7) !important;
+        backdrop-filter: blur(15px);
+        border-bottom: 1px solid rgba(162, 155, 254, 0.1);
+    }
+
+    /* 🦋 [나비 아이콘 네온 효과] */
+    .butterfly-neon {
+        font-size: 1.7rem;
+        margin-right: 12px;
+        filter: sepia(1) saturate(1.8) hue-rotate(220deg) brightness(1.2) drop-shadow(0 0 8px #A29BFE);
+        display: inline-block;
+    }
+
+    /* 🚩 [전광판(Ticker) 디자인 - 아이콘 제거 버전] */
+    .ticker-container {
+        flex-grow: 1;
+        overflow: hidden;
+        white-space: nowrap;
+        background: rgba(162, 155, 254, 0.05);
+        border-radius: 20px;
+        margin: 0 20px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        position: relative;
+        border: 1px solid rgba(162, 155, 254, 0.2);
+    }
+
+    .ticker-content {
+        display: inline-block;
+        padding-left: 100%;
+        animation: ticker-animation 30s linear infinite;
+    }
+
+    .ticker-item {
+        display: inline-flex;
+        align-items: center;
+        padding-right: 150px;
+    }
+
+    /* 🚨 [분류 태그 - 공통 스타일] */
+    .notice-tag {
+        font-size: 0.65rem;
+        padding: 1px 7px;
+        border-radius: 4px;
+        margin-right: 10px;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+        flex-shrink: 0;
+    }
+
+    /* 필독 (아쿠아 네온) */
+    .tag-urgent {
+        background: rgba(0, 229, 255, 0.1);
+        color: #00E5FF;
+        border: 1px solid rgba(0, 229, 255, 0.4);
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+    }
+
+    /* 일반 (보라 네온) */
+    .tag-normal {
+        background: rgba(162, 155, 254, 0.1);
+        color: #A29BFE;
+        border: 1px solid rgba(162, 155, 254, 0.3);
+    }
+
+    .notice-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: rgba(255, 255, 255, 0.85);
+    }
+
+    .ticker-item.urgent .notice-title {
+        color: #FFFFFF;
+        text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+
+    .click-hint {
+        margin-left: 8px;
+        font-size: 0.6rem;
+        color: rgba(162, 155, 254, 0.5);
+        font-style: italic;
+    }
+
+    @@keyframes ticker-animation {
+        0% {
+            transform: translateX(0);
+        }
+
+        100% {
+            transform: translateX(-100%);
+        }
+    }
+
+    .ticker-container:hover .ticker-content {
+        animation-play-state: paused;
+    }
+
+    /* 스크롤바 커스텀 */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: rgba(162, 155, 254, 0.2);
+        border-radius: 4px;
+    }
+
+    /* 🚩 사이드바 소제목 및 간격 최적화 */
+    .nav-section-title {
+        padding: 18px 16px 4px 16px; /* 위 여백 확보, 아래 여백 최소화 */
+        font-size: 0.7rem;
+        font-weight: 900;
+        letter-spacing: 1.5px;
+        opacity: 0.85;
+    }
+
+    /* 메뉴 항목 간격 타이트하게 조절 */
+    .mud-nav-item {
+        margin-bottom: 2px;
+    }
+
+    .mud-nav-link {
+        padding-top: 8px !important;
+        padding-bottom: 8px !important;
+    }
+
+    /* 🎨 테마별 네온 컬러 매칭 */
+    .theme-notice {
+        color: #81ECEC;
+        text-shadow: 0 0 8px rgba(129, 236, 236, 0.4);
+    }
+    /* 아쿠아 민트 */
+    .theme-myspace {
+        color: #A29BFE;
+        text-shadow: 0 0 8px rgba(162, 155, 254, 0.4);
+    }
+    /* 메인 보라 */
+    .theme-raid {
+        color: #FDA7DF;
+        text-shadow: 0 0 8px rgba(253, 167, 223, 0.4);
+    }
+    /* 메인 핑크 */
+    .theme-archive {
+        color: #B2BEC3;
+    }
+    /* 차분한 그레이 */
+    .theme-admin {
+        color: #FF7675;
+        text-shadow: 0 0 8px rgba(255, 118, 117, 0.4);
+    }
+    /* 코랄 레드 (관리자) */
+</style>
+
+<MudThemeProvider IsDarkMode="true" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<MudPopoverProvider />
+
+<MudLayout Class="main-background">
+    <div class="content-overlay">
+        <MudAppBar Elevation="0">
+            @if (AppState.IsLoggedIn)
+            {
+                <MudIconButton Icon="@Icons.Material.Filled.MenuOpen" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+            }
+
+            <div class="d-flex align-center ml-2 flex-shrink-0" style="cursor:pointer;" @onclick='() => NavManager.NavigateTo("/")'>
+                <span class="butterfly-neon">🦋</span>
+                <MudText Typo="Typo.h6" Style="font-weight:900; color:#FFFFFF; letter-spacing: 1.5px; text-shadow: 0 0 10px rgba(162,155,254,0.3);">밤나비</MudText>
+            </div>
+
+            @if (AppState.IsLoggedIn && activeNotices != null && activeNotices.Any())
+            {
+                <div class="ticker-container d-none d-md-flex" @onclick="@(() => NavManager.NavigateTo("/notices"))" style="cursor:pointer;">
+                    <div class="ticker-content">
+                        @foreach (var n in activeNotices)
+                        {
+                            <div class="ticker-item @(n.Priority == 0 ? "urgent" : "")">
+                                @if (n.Priority == 0)
+                                {
+                                    <span class="notice-tag tag-urgent">중요</span>
+                                }
+                                else
+                                {
+                                    <span class="notice-tag tag-normal">공지</span>
+                                }
+                                <span class="notice-title">@n.Title</span>
+                                <span class="click-hint">Click</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <MudSpacer />
+
+            @if (AppState.IsLoggedIn)
+            {
+                <div class="d-flex align-center flex-shrink-0">
+                    <MudText Typo="Typo.body2" Class="mr-4 d-none d-sm-block">
+                        <span style="color: #A29BFE; font-weight:bold;">@AppState.CurrentAdventureName</span>
+                        <span style="color:rgba(255,255,255,0.5); font-size:0.8rem;"> 님</span>
+                    </MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Dark" Size="Size.Small"
+                               Style="background: rgba(162, 155, 254, 0.1); border: 1px solid rgba(162, 155, 254, 0.2); border-radius: 4px; color: #A29BFE;" OnClick="DoLogout">로그아웃</MudButton>
+                </div>
+            }
+        </MudAppBar>
+
+        @if (AppState.IsLoggedIn)
+        {
+            <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="0">
+                <MudNavMenu>
+                    @* 1. 공지사항 영역 *@
+                    <div class="nav-section-title theme-notice">NOTICE</div>
+                    <MudNavLink Href="/notices" Icon="@Icons.Material.Filled.Stream" Match="NavLinkMatch.All">통합 공지사항</MudNavLink>
+                    <MudDivider Class="my-2" Style="background-color: rgba(255,255,255,0.05);" />
+
+                    @* 2. 내 정보 관리 영역 *@
+                    <div class="nav-section-title theme-myspace">MY SPACE</div>
+                    <MudNavLink Href="/settings" Icon="@Icons.Material.Filled.Tune" Match="NavLinkMatch.All">모험단 환경설정</MudNavLink>
+                    <MudNavLink Href="/characters" Icon="@Icons.Material.Filled.AutoFixHigh" Match="NavLinkMatch.All">캐릭터 관리</MudNavLink>
+                    <MudNavLink Href="/my-raids" Icon="@Icons.Material.Filled.AssignmentInd" Match="NavLinkMatch.All">레이드 참여 현황</MudNavLink>
+                    <MudDivider Class="my-2" Style="background-color: rgba(255,255,255,0.05);" />
+
+                    @* 3. 길드 레이드 영역 *@
+                    <div class="nav-section-title theme-raid">RAID SYSTEM</div>
+                    <MudNavGroup Title="실시간 레이드 현황" Icon="@Icons.Material.Filled.Lan" Expanded="true">
+                        <MudNavLink Href="/raids/open" Icon="@Icons.Material.Filled.Campaign" Match="NavLinkMatch.All">모집 중인 공대</MudNavLink>
+                        <MudNavLink Href="/raids/closed" Icon="@Icons.Material.Filled.LockClock" Match="NavLinkMatch.All">모집 마감(예정)</MudNavLink>
+                        <MudNavLink Href="/raids/history" Icon="@Icons.Material.Filled.History" Match="NavLinkMatch.All">지난 레이드 이력</MudNavLink>
+                    </MudNavGroup>
+                    <MudNavLink Href="/raids/apply" Icon="@Icons.Material.Filled.FactCheck" Match="NavLinkMatch.All">공대 참가 신청</MudNavLink>
+
+                    <MudDivider Class="my-2" Style="background-color: rgba(255,255,255,0.05);" />
+
+                    @* 4. 아카이브 영역 *@
+                    <div class="nav-section-title theme-archive">ARCHIVE</div>
+                    <MudNavLink Href="/guild-members" Icon="@Icons.Material.Filled.Hub" Match="NavLinkMatch.All">길드원 목록</MudNavLink>
+                    <MudNavLink Href="/rankings-new" Icon="@Icons.Material.Filled.EmojiEvents" Match="NavLinkMatch.All">밤나비 명예의 전당</MudNavLink>
+                    
+                    <div class="nav-section-title theme-data">DATA CENTER</div>
+                    <MudNavLink Href="/RaidDashboard" Icon="@Icons.Material.Filled.Dashboard" Match="NavLinkMatch.All">레이드 통계(모험단)</MudNavLink>
+
+                    @if (AppState.IsAdmin)
+                    {
+                        <MudDivider Class="my-2" Style="background-color: rgba(108, 92, 231, 0.15);" />
+                        <div class="nav-section-title theme-admin">ADMIN PANEL</div>
+                        <MudNavLink Href="/admin/notices" Icon="@Icons.Material.Filled.HistoryEdu" Match="NavLinkMatch.All">공지 관리</MudNavLink>
+                        <MudNavLink Href="/admin/raids" Icon="@Icons.Material.Filled.AdminPanelSettings" Match="NavLinkMatch.All">공대 편성/모집</MudNavLink>
+                        <MudNavLink Href="/admin/raids/meta" Icon="@Icons.Material.Filled.Architecture" Match="NavLinkMatch.All">레이드 정보 관리</MudNavLink>
+                        <MudNavLink Href="/admin/adventures" Icon="@Icons.Material.Filled.PeopleAlt" Match="NavLinkMatch.All">모험단 권한 제어</MudNavLink>
+                        <MudNavLink Href="/admin/jobs" Icon="@Icons.Material.Filled.Construction" Match="NavLinkMatch.All">직업 관리</MudNavLink>
+                    }
+                </MudNavMenu>
+            </MudDrawer>
+        }
+
+        <MudMainContent>
+            <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4 pb-10">
+                @Body
+            </MudContainer>
+        </MudMainContent>
+    </div>
+</MudLayout>
+
+@code {
+    bool _drawerOpen = true;
+    private bool _isInitializing = true;
+    private List<Notice> activeNotices = new();
+
+    void DrawerToggle() => _drawerOpen = !_drawerOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AppState.OnChange += HandleStateChange;
+        _isInitializing = true;
+        bool restored = await AppState.TryRestoreLogin();
+        if (restored && AppState.IsLoggedIn)
+        {
+            await SyncUserInfo();
+            await LoadActiveNotices();
+        }
+        _isInitializing = false;
+        CheckAccess();
+    }
+
+    private void CheckAccess()
+    {
+        if (_isInitializing) return;
+
+        var uri = NavManager.ToAbsoluteUri(NavManager.Uri).AbsolutePath.ToLower();
+
+        // 1. 로그인이 안 된 경우: 비로그인 허용 페이지가 아니면 루트(로그인화면)로 리다이렉트
+        if (!AppState.IsLoggedIn)
+        {
+            if (uri != "/" && uri != "/login" && uri != "/register" && uri != "/index.html")
+            {
+                NavManager.NavigateTo("/");
+                return;
+            }
+        }
+        // 2. 로그인 된 경우
+        else
+        {
+            // 루트("/")에 접속하면 자동으로 "/my-raids"로 보냄 (시작 페이지 설정)
+            if (uri == "/" || uri == "/index.html")
+            {
+                NavManager.NavigateTo("/my-raids");
+                return;
+            }
+
+            // 관리자 권한이 없는데 관리자 페이지 접근 시 "/my-raids"로 튕김
+            if (uri.Contains("/admin") && !AppState.IsAdmin)
+            {
+                NavManager.NavigateTo("/my-raids");
+                return;
+            }
+        }
+    }
+
+    private async Task SyncUserInfo()
+    {
+        try
+        {
+            var result = await SupaClient.From<Adventure>().Where(x => x.Id == AppState.CurrentUserId).Single();
+            if (result != null)
+            {
+                AppState.UpdateAdminStatus(result.IsAdmin);
+                AppState.UpdateAdventureName(result.AdventureName);
+                await AppState.PersistLogin();
+            }
+        }
+        catch { await AppState.ClearStorage(); }
+    }
+
+    private async Task LoadActiveNotices()
+    {
+        try
+        {
+            var res = await SupaClient.From<Notice>().Where(x => x.IsActive == true)
+                                      .Order("priority", Supabase.Postgrest.Constants.Ordering.Ascending)
+                                      .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending).Get();
+            activeNotices = res.Models;
+            StateHasChanged();
+        }
+        catch { activeNotices = new(); }
+    }
+
+    private void HandleStateChange() => InvokeAsync(async () =>
+    {
+        CheckAccess();
+        if (AppState.IsLoggedIn) await LoadActiveNotices();
+        else activeNotices.Clear();
+        StateHasChanged();
+    });
+
+    protected override void OnParametersSet() => CheckAccess();
+    public void Dispose() => AppState.OnChange -= HandleStateChange;
+
+    private async Task DoLogout()
+    {
+        if ((await DialogService.ShowMessageBox("로그아웃", "정말 로그아웃 하시겠습니까?", "확인", "취소")) == true)
+        {
+            await AppState.ClearStorage();
+            NavManager.NavigateTo("/", true);
+        }
+    }
+}

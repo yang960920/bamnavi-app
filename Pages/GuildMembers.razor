@@ -1,0 +1,282 @@
+﻿@page "/guild-members"
+@using SSM.Models
+@using Supabase.Postgrest
+@inject Supabase.Client SupaClient
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 [완벽 일치] 밤나비 전용 가독성 강화 유리 효과 (70% + 25px) */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 12px !important; /* 캐릭터 페이지와 동일하게 12px */
+        color: white !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 📊 [완벽 일치] 데이터 그리드 스타일 */
+    .fixed-grid {
+        background: transparent !important;
+    }
+
+    /* 헤더 중앙 정렬 및 캐릭터 페이지와 100% 동일한 색상/폰트 */
+    .mud-table-head .mud-table-cell {
+        background-color: #2D2D3A !important;
+    }
+
+        .mud-table-head .mud-table-cell .column-header {
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            width: 100% !important;
+            position: relative !important;
+            color: #A29BFE !important;
+            padding: 0 !important;
+        }
+
+        .mud-table-head .mud-table-cell .sortable-column-header {
+            text-align: center !important;
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+            margin-right: 0 !important;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        .mud-table-head .mud-table-cell .column-options {
+            position: absolute !important;
+            right: 4px !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
+    .mud-sort-index {
+        display: none !important;
+    }
+
+    /* 데이터 본문 행 디자인 (캐릭터 페이지 스타일 1:1 복사) */
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.4) !important;
+        color: #FFFFFF !important;
+        border-bottom: 4px solid rgba(15, 15, 30, 1) !important;
+        text-align: center !important;
+        font-weight: 500;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .mud-table-row:hover .mud-table-cell {
+        background-color: rgba(162, 155, 254, 0.15) !important;
+    }
+
+    /* 🦋 나비 로고 (캐릭터 페이지와 동일) */
+    .login-logo-small {
+        font-size: 2.5rem;
+        filter: sepia(1) saturate(1.5) hue-rotate(225deg) brightness(1.2) drop-shadow(0 0 10px #A29BFE);
+        display: inline-block;
+        vertical-align: middle;
+        user-select: none;
+    }
+
+    /* 입력창 및 필터 영역 디자인 */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-input-root-outlined {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+    }
+
+    /* 🚩 직업별 포인트 컬러 고정 */
+    .text-dealer {
+        color: #A29BFE !important;
+        font-weight: 900;
+        text-shadow: 0 0 8px rgba(162, 155, 254, 0.5);
+    }
+
+    .text-support {
+        color: #FDA7DF !important;
+        font-weight: 900;
+        text-shadow: 0 0 8px rgba(253, 167, 223, 0.5);
+    }
+
+    /* 구분 칩 스타일 보정 */
+    .chip-dealer {
+        background: rgba(162, 155, 254, 0.2) !important;
+        color: #A29BFE !important;
+        border: 1px solid #A29BFE !important;
+        font-weight: 900;
+    }
+
+    .chip-support {
+        background: rgba(253, 167, 223, 0.2) !important;
+        color: #FDA7DF !important;
+        border: 1px solid #FDA7DF !important;
+        font-weight: 900;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @* 상단 타이틀 *@
+    <div class="d-flex align-center mb-6">
+        <span class="login-logo-small">🦋</span>
+        <MudText Typo="Typo.h5" Style="color: white; font-weight: 900; letter-spacing: 1px;">전체 모험단 스펙 조회</MudText>
+    </div>
+
+    @* 필터 섹션 *@
+    <MudPaper Elevation="0" Class="pa-6 mb-6 glass-panel">
+        <MudGrid Spacing="3" AlignItems="AlignItems.Center">
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="_searchGlobal"
+                              @bind-Value:after="ApplyFilters"
+                              Label="모험단 또는 캐릭터명"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Immediate="true" DebounceInterval="300"
+                              Clearable="true" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" />
+            </MudItem>
+            <MudItem xs="6" sm="4">
+                <MudTextField @bind-Value="_fJob"
+                              @bind-Value:after="ApplyFilters"
+                              Label="직업 검색"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Immediate="true" DebounceInterval="300"
+                              Clearable="true" />
+            </MudItem>
+            <MudItem xs="6" sm="4">
+                <MudSelect T="string" Label="포지션 선택"
+                           @bind-Value="_fPos"
+                           @bind-Value:after="ApplyFilters"
+                           Variant="Variant.Outlined" Margin="Margin.Dense"
+                           AnchorOrigin="Origin.BottomCenter" Clearable="true">
+                    <MudSelectItem Value="@("")">전체 보기</MudSelectItem>
+                    <MudSelectItem Value="@("딜러")">딜러군</MudSelectItem>
+                    <MudSelectItem Value="@("버퍼")">버퍼군</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <div class="d-flex justify-end mb-2 px-2">
+        <MudText Typo="Typo.caption" Style="color: #8E9AAF; font-weight: 900;">조회 결과: <b style="color: #A29BFE;">@_filteredRows.Count</b> 건</MudText>
+    </div>
+
+    @* 데이터 그리드 *@
+    <MudDataGrid T="CharacterRow"
+                 Items="@_filteredRows"
+                 Hover="true"
+                 Elevation="0"
+                 Dense="true"
+                 ShowColumnOptions="false"
+                 SortMode="SortMode.Single"
+                 CanCancelSort="false"
+                 RowsPerPage="50"
+                 Class="fixed-grid">
+        <Columns>
+            <PropertyColumn Property="x => x.AdventureName" Title="모험단" Width="20%" />
+            <PropertyColumn Property="x => x.CharName" Title="캐릭터명" Width="20%" />
+            <PropertyColumn Property="x => x.Job" Title="직업" Width="20%" />
+
+            <PropertyColumn Property="x => x.IsSupport" Title="구분" Width="15%">
+                <CellTemplate>
+                    <div class="d-flex justify-center">
+                        <MudChip T="string"
+                                 Class="@(context.Item.IsSupport ? "chip-support" : "chip-dealer")"
+                                 Size="Size.Small" Variant="Variant.Filled">
+                            @(context.Item.IsSupport ? "버퍼" : "딜러")
+                        </MudChip>
+                    </div>
+                </CellTemplate>
+            </PropertyColumn>
+
+            <TemplateColumn Title="딜 / 버프력" Width="25%" Sortable="true" SortBy="x => x.Spec">
+                <CellTemplate>
+                    <div class="text-center @(context.Item.IsSupport ? "text-support" : "text-dealer")">
+                        @FormatSpec(context.Item)
+                    </div>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="CharacterRow" />
+        </PagerContent>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<CharacterRow> _rows = new();
+    private List<CharacterRow> _filteredRows = new();
+    private string _searchGlobal = "";
+    private string _fJob = "";
+    private string _fPos = "";
+
+    public class CharacterRow
+    {
+        public string AdventureName { get; set; } = "";
+        public string CharName { get; set; } = "";
+        public string Job { get; set; } = "";
+        public bool IsSupport { get; set; }
+        public double Spec { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        var advRes = await SupaClient.From<Adventure>().Get();
+        var charRes = await SupaClient.From<Character>().Get();
+
+        if (charRes.Models != null && advRes.Models != null)
+        {
+            _rows = (from c in charRes.Models
+                     join a in advRes.Models on c.AdventureId equals a.Id
+                     select new CharacterRow
+                         {
+                             AdventureName = a.AdventureName,
+                             CharName = c.Char_name,
+                             Job = c.Job,
+                             IsSupport = c.Is_Support,
+                             Spec = c.Spec ?? 0
+                         }).ToList();
+            _filteredRows = _rows;
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        var search = _searchGlobal?.Trim() ?? "";
+        var job = _fJob?.Trim() ?? "";
+        var pos = _fPos ?? "";
+
+        _filteredRows = _rows.Where(x =>
+            (string.IsNullOrEmpty(search) ||
+             x.AdventureName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+             x.CharName.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(job) || x.Job.Contains(job, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(pos) || (x.IsSupport ? "버퍼" : "딜러") == pos)
+        ).ToList();
+
+        StateHasChanged();
+    }
+
+    private string FormatSpec(CharacterRow row)
+    {
+        if (row.IsSupport) return row.Spec.ToString("N0");
+        double val = row.Spec;
+        if (val < 10000) return "0";
+        long eok = (long)(val / 100000000);
+        long man = (long)((val % 100000000) / 10000);
+        string result = "";
+        if (eok > 0) result += $"{eok}억 ";
+        if (man > 0) result += $"{man}만";
+        return string.IsNullOrWhiteSpace(result) ? "0" : result.Trim();
+    }
+}

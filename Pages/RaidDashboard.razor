@@ -1,0 +1,547 @@
+﻿@page "/RaidDashboard"
+@using MudBlazor
+@using ApexCharts
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@inject Supabase.Client SupaClient
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-8 bamnabi-theme">
+    @* 🚩 상단 타이틀 및 MVP 영역 (반응형 적용) *@
+    <div class="d-flex flex-wrap align-center justify-space-between mb-6 gap-3">
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.NightsStay" Size="MudBlazor.Size.Large" Style="color: #A29BFE;" Class="mr-2" />
+            <MudText Typo="Typo.h4" Class="font-bold dashboard-title" Style="color: #E0E0FF; text-shadow: 0 0 10px rgba(162,155,254,0.5);">
+                밤나비 레이드 통계(모험단)
+            </MudText>
+        </div>
+
+        @* MVP를 최상단 통계 제목 우측으로 이동 *@
+        @if (_topMember != null)
+        {
+            <div class="d-flex align-center pa-2 px-4 rounded-xl mvp-box" style="background: rgba(162, 155, 254, 0.1); border: 1px solid rgba(162, 155, 254, 0.3); box-shadow: 0 0 15px rgba(162, 155, 254, 0.15);">
+                <MudText Typo="Typo.subtitle2" Style="color: #A29BFE; letter-spacing: 1px;" Class="mr-3">👑 CURRENT MVP</MudText>
+                <MudText Typo="Typo.h5" Class="font-bold text-white mr-3 mvp-text" Style="text-shadow: 0 0 10px rgba(255,255,255,0.3);">
+                    @_topMember.AdventureName
+                </MudText>
+                <MudText Typo="Typo.h5" Class="font-bold mvp-score" Style="color: #FFD700; text-shadow: 0 0 15px rgba(255,215,0,0.4);">
+                    @($"{_topMember.TotalScore:F2}") <span style="font-size: 0.6em; color: #E0E0FF;">PTS</span>
+                </MudText>
+            </div>
+        }
+    </div>
+
+    @if (!_isLoaded)
+    {
+        <MudProgressLinear Color="MudBlazor.Color.Secondary" Indeterminate="true" Class="my-7 bamnabi-progress" />
+    }
+    else
+    {
+        @* 🚩 검색 영역: 좌측 모험단명 검색 / 우측 기간 버튼 + 네이티브 날짜 선택 + 검색 버튼 *@
+        <div class="d-flex justify-space-between align-center mb-6 flex-wrap gap-4">
+
+            @* 좌측: 모험단명 검색 *@
+            <div style="flex-basis: 250px; flex-shrink: 0;">
+                <MudTextField @bind-Value="_searchKeyword" Placeholder="모험단명 검색" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Text" Style="color: #E0E0FF;" Margin="Margin.Dense" />
+            </div>
+
+            @* 우측: 기간 버튼들 + 날짜 선택 + 검색 버튼 *@
+            <div class="d-flex align-center gap-3 flex-wrap">
+                <div class="d-flex gap-2">
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" OnClick="@(() => SetDateRange(1))" Style="color: #A29BFE; border-color: rgba(162,155,254,0.5);">1개월</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" OnClick="@(() => SetDateRange(3))" Style="color: #A29BFE; border-color: rgba(162,155,254,0.5);">3개월</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" OnClick="@(() => SetDateRange(6))" Style="color: #A29BFE; border-color: rgba(162,155,254,0.5);">6개월</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" OnClick="@(() => SetDateRange(null))" Style="color: #A29BFE; border-color: rgba(162,155,254,0.5);">전체</MudButton>
+                </div>
+
+                <div class="d-flex align-center gap-2">
+                    <input type="date" class="native-date-input" @bind="_searchStartDate" @bind:format="yyyy-MM-dd" />
+                    <span style="color: #A29BFE; font-weight: bold;">~</span>
+                    <input type="date" class="native-date-input" @bind="_searchEndDate" @bind:format="yyyy-MM-dd" />
+                </div>
+
+                <MudButton Variant="Variant.Outlined" OnClick="SearchData" Style="color: #A29BFE; border-color: #A29BFE; height: 36px;">검색</MudButton>
+            </div>
+
+        </div>
+
+        <MudGrid>
+            @* 2. 순위 테이블 *@
+            <MudItem xs="12">
+                <MudTable Items="@_members" Hover="true" T="MemberContribution" RowsPerPage="5"
+                          OnRowClick="@(async (args) => await SelectMember(args.Item))"
+                          RowClassFunc="@((item, idx) => item.AdventureId == _selectedMember?.AdventureId ? "selected-row" : "")"
+                          Class="bamnabi-table rounded-xl">
+                    <HeaderContent>
+                        <MudTh>순위</MudTh>
+                        <MudTh>모험단명</MudTh>
+                        <MudTh>참여점수</MudTh>
+                        <MudTh>최근활동</MudTh>
+                        <MudTh>공대기여</MudTh>
+                        <MudTh>동원효율</MudTh>
+                        <MudTh>본캐헌신</MudTh>
+                        <MudTh>절대무력</MudTh>
+                        <MudTh Class="font-bold" Style="color: #A29BFE;">종합 점수</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="순위">
+                            @if (_members.IndexOf(context) == 0)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.EmojiEvents" Style="color: #FFD700;" Size="MudBlazor.Size.Small" />
+                            }
+                            else if (_members.IndexOf(context) == 1)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.EmojiEvents" Style="color: #C0C0C0;" Size="MudBlazor.Size.Small" />
+                            }
+                            else if (_members.IndexOf(context) == 2)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.EmojiEvents" Style="color: #CD7F32;" Size="MudBlazor.Size.Small" />
+                            }
+                            else
+                            {
+                                @(_members.IndexOf(context) + 1)
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="모험단명" Class="font-bold" Style="color: #E0E0FF;">@context.AdventureName</MudTd>
+                        <MudTd DataLabel="참여점수">@($"{context.AttendanceRate:F1}")</MudTd>
+                        <MudTd DataLabel="최근활동">@($"{context.RecentForm:F1}")</MudTd>
+                        <MudTd DataLabel="공대기여">@($"{context.LaborContribution:F1}")</MudTd>
+                        <MudTd DataLabel="동원효율">@($"{context.MobilizationEfficiency:F1}")</MudTd>
+                        <MudTd DataLabel="본캐헌신">@($"{context.EliteDedication:F1}")</MudTd>
+                        <MudTd DataLabel="절대무력">@($"{context.AbsolutePower:F1}")</MudTd>
+                        <MudTd DataLabel="종합점수" Class="font-bold" Style="color: #A29BFE;">@($"{context.TotalScore:F2}")</MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager PageSizeOptions="new int[] { 5, 10, 20, 50 }" InfoFormat="{first_item}-{last_item} / 총 {all_items}명" />
+                    </PagerContent>
+                </MudTable>
+            </MudItem>
+
+            @* 3. 하단 레이아웃: 차트 & 비서 한마디 *@
+            <MudItem xs="12" md="8">
+                <MudPaper Elevation="4" Class="pa-6 rounded-xl d-flex flex-column bamnabi-panel" Style="height: 100%;">
+                    <MudText Typo="Typo.h5" Class="mb-4 font-bold d-flex align-center" Style="color: #E0E0FF;">
+                        <span class="butterfly-neon mr-2">🦋</span> 상세 지표 : <span style="color: #A29BFE; margin-left:8px;">@(_selectedMember?.AdventureName ?? "")</span>
+                    </MudText>
+
+                    <div class="flex-grow-1">
+                        @if (_radarData != null && _radarData.Any())
+                        {
+                            <ApexChart @ref="_chart" TItem="RadarPoint" Options="_chartOptions" Height="450">
+                                <ApexPointTooltip>
+                                    @{
+                                        var point = context.DataPoint.Items.FirstOrDefault();
+                                    }
+                                    @if (point != null)
+                                    {
+                                        <div class="bamnabi-tooltip-custom pa-3">
+                                            <div class="tooltip-title">@point.Label</div>
+                                            <div class="tooltip-desc">@GetMetricDescription(point.Label)</div>
+                                            <div class="tooltip-score">스코어 : @point.Value</div>
+                                        </div>
+                                    }
+                                </ApexPointTooltip>
+
+                                <ChildContent>
+                                    <ApexPointSeries TItem="RadarPoint"
+                                                     Items="_radarData"
+                                                     Name="스탯"
+                                                     SeriesType="SeriesType.Radar"
+                                                     XValue="@(e => e.Label)"
+                                                     YValue="@(e => (decimal)e.Value)" />
+                                </ChildContent>
+                            </ApexChart>
+                        }
+                    </div>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="4">
+                <MudPaper Elevation="4" Class="pa-6 rounded-xl bamnabi-panel" Style="height: 100%;">
+                    <MudText Typo="Typo.h5" Class="mb-4 font-bold" Style="color: #E0E0FF;">공대장 코멘트💌</MudText>
+                    <div class="overflow-auto pr-2" style="max-height: 450px;">
+                        @if (_selectedMember?.Mentions != null)
+                        {
+                            @foreach (var m in _selectedMember.Mentions)
+                            {
+                                <MudAlert Severity="Severity.Normal" Class="mb-3 bamnabi-alert">@m</MudAlert>
+                            }
+                        }
+                    </div>
+                </MudPaper>
+            </MudItem>
+
+            @* 4. 지표 설명 (항상 펼쳐진 고정 박스로 변경) *@
+            <MudItem xs="12" Class="mb-10 mt-4">
+                <MudPaper Elevation="4" Class="pa-6 rounded-xl bamnabi-panel">
+                    <MudText Typo="Typo.h6" Class="font-bold mb-4" Style="color: #A29BFE; border-bottom: 2px solid rgba(162, 155, 254, 0.3); padding-bottom: 12px;">
+                        📊 기여도 산정 공식 및 지표 상세 안내
+                    </MudText>
+
+                    <MudText Typo="Typo.body1" Class="mb-6" Style="color:#ccc; line-height: 1.6;">
+                        밤나비 공대의 기여도는 <b>실제 레이드 데이터</b>를 기반으로 6가지 항목을 분석하여 산출됩니다. 모든 지표는 100점 만점으로 계산됩니다.
+                    </MudText>
+
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="0" Class="pa-4 bamnabi-info-box">
+                                <MudText Typo="Typo.subtitle1" Class="font-bold mb-1">🏆 참여점수 - 가중치 1.0</MudText>
+                                <MudText Typo="Typo.body2">공대 창설 이후 전체 주차 중 본인이 한 번이라도 참여한 주차의 비율입니다.</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #A29BFE;">계산식: (참여 주차 수 / 공대 전체 운영 주차 수) × 100</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="0" Class="pa-4 bamnabi-info-box">
+                                <MudText Typo="Typo.subtitle1" Class="font-bold mb-1">🔥 최근활동 - 가중치 0.9</MudText>
+                                <MudText Typo="Typo.body2">가장 최근 4주간의 레이드 참여율 평균으로, 최근 공대 활동 폼을 나타냅니다.</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #A29BFE;">계산식: 최근 4주간 주간 참여율의 평균</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="0" Class="pa-4 bamnabi-info-box">
+                                <MudText Typo="Typo.subtitle1" Class="font-bold mb-1">🏭 공대기여 - 가중치 1.2 (최고점)</MudText>
+                                <MudText Typo="Typo.body2">해당 주차에 공대가 오픈한 총 기수 대비 본인이 소화한 기수의 비율을 평가합니다.</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #A29BFE;">계산식: 주차별 (본인 참여 세션 수 / 공대 오픈 총 세션 수) × 100 의 평균</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="0" Class="pa-4 bamnabi-info-box">
+                                <MudText Typo="Typo.subtitle1" Class="font-bold mb-1">⚙️ 동원효율 - 가중치 1.1</MudText>
+                                <MudText Typo="Typo.body2">본인 모험단 내 등록된 캐릭터 대비 실제 레이드에 얼마나 많이 투입했는지 평가합니다. (물리적 한계 보정)</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #A29BFE;">계산식: (투입 캐릭 수 / min(보유 캐릭 수, 총 기수)) × 100</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="0" Class="pa-4 bamnabi-info-box">
+                                <MudText Typo="Typo.subtitle1" Class="font-bold mb-1">❤️ 본캐헌신 - 가중치 1.1</MudText>
+                                <MudText Typo="Typo.body2">참여 캐릭 중 에이스(상위권 딜러, 고랭크 버퍼) 투입 비중을 종합하여 평균값을 계산한 지표입니다.</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #A29BFE;">계산식: 주차별 직군(딜/벞) 에이스 점수의 평균값</MudText>
+                            </MudPaper>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudPaper Elevation="0" Class="pa-4 bamnabi-info-box">
+                                <MudText Typo="Typo.subtitle1" Class="font-bold mb-1">⚔️ 절대무력 - 가중치 1.1</MudText>
+                                <MudText Typo="Typo.body2">투입한 캐릭터 중 길드 전체 랭킹 대비 가장 높은 순위(무력)를 점수화합니다.</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #A29BFE;">계산식: (1.0 - (레이드 시점의 길드내 등수 - 1) / (전체 인원 - 1))² × 100 의 최댓값</MudText>
+                            </MudPaper>
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudDivider Class="my-6" Style="border-color: rgba(162, 155, 254, 0.2);" />
+                    <MudText Typo="Typo.h6" Class="font-bold mb-2" Style="color: #E0E0FF;">🧮 최종 종합 점수 산출식</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-3" Style="color: #ccc;">위 6가지 지표에 각각의 가중치를 곱하여 모두 더한 뒤, 가중치 총합(6.4)으로 나누어 최종 100점 만점으로 정규화합니다.</MudText>
+                    <div class="bamnabi-formula">
+                        Total Score = [ (성실도 × 1.0) + (최근 활동 × 0.9) + (노동 기여 × 1.2) + (동원 효율 × 1.1) + (본캐 헌신 × 1.1) + (절대 무력 × 1.1) ] ÷ 6.4
+                    </div>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+<style>
+    /* 🚩 네이티브 Date Input 스타일 추가 */
+    .native-date-input {
+        background: rgba(0, 0, 0, 0.4);
+        color: white;
+        border: 1px solid rgba(162, 155, 254, 0.4);
+        border-radius: 8px;
+        padding: 6px 12px;
+        font-size: 0.9rem;
+        outline: none;
+        transition: all 0.3s;
+        color-scheme: dark;
+        height: 36px; /* 버튼 높이와 정렬 맞춤 */
+    }
+
+        .native-date-input:focus {
+            border-color: #A29BFE;
+            box-shadow: 0 0 8px rgba(162, 155, 254, 0.4);
+        }
+
+    /* 🦋 밤나비 (Night Butterfly) 커스텀 테마 CSS (기존과 동일) */
+    .bamnabi-theme {
+        color: #E0E0FF;
+    }
+
+    .bamnabi-panel {
+        background-color: #1a1a2e !important;
+        border: 1px solid rgba(162, 155, 254, 0.15);
+    }
+
+    .bamnabi-table {
+        background-color: #1a1a2e !important;
+        color: #E0E0FF !important;
+    }
+
+        .bamnabi-table .mud-table-head .mud-table-cell {
+            background-color: #16213e !important;
+            color: #A29BFE !important;
+            font-weight: bold;
+            border-bottom: 2px solid #A29BFE;
+        }
+
+        .bamnabi-table .mud-table-cell {
+            color: #d1d1e9;
+            border-bottom: 1px solid rgba(162, 155, 254, 0.1);
+        }
+
+        .bamnabi-table .mud-table-row:hover {
+            background-color: rgba(162, 155, 254, 0.05) !important;
+        }
+
+    .selected-row {
+        background-color: rgba(162, 155, 254, 0.15) !important;
+        border-left: 4px solid #A29BFE !important;
+    }
+
+    .bamnabi-alert {
+        background: rgba(162, 155, 254, 0.1) !important;
+        border: 1px solid rgba(162, 155, 254, 0.3) !important;
+        color: #E0E0FF !important;
+    }
+
+    .bamnabi-info-box {
+        background: rgba(16, 15, 30, 0.6) !important;
+        border: 1px solid rgba(162, 155, 254, 0.2);
+        color: #d1d1e9;
+    }
+
+    .bamnabi-formula {
+        background: linear-gradient(90deg, #16213e 0%, #0f3460 100%);
+        color: #A29BFE;
+        padding: 16px;
+        border-radius: 8px;
+        text-align: center;
+        font-weight: bold;
+        border: 1px solid rgba(162, 155, 254, 0.4);
+        box-shadow: 0 0 10px rgba(162, 155, 254, 0.1);
+    }
+
+    .bamnabi-expansion .mud-expand-panel-header {
+        background-color: #16213e !important;
+        color: #A29BFE !important;
+        font-weight: bold;
+    }
+
+    .bamnabi-expansion .mud-collapse-container {
+        background-color: #1a1a2e !important;
+    }
+
+    .apexcharts-tooltip {
+        background: rgba(22, 33, 62, 0.95) !important;
+        border: 1px solid #A29BFE !important;
+        box-shadow: 0 0 15px rgba(162, 155, 254, 0.3) !important;
+        border-radius: 8px !important;
+    }
+
+    .bamnabi-tooltip-custom {
+        text-align: center;
+        min-width: 140px;
+    }
+
+        .bamnabi-tooltip-custom .tooltip-title {
+            color: #A29BFE;
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(162, 155, 254, 0.3);
+            padding-bottom: 4px;
+        }
+
+        .bamnabi-tooltip-custom .tooltip-desc {
+            color: #cccccc;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+        }
+
+        .bamnabi-tooltip-custom .tooltip-score {
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 1.2em;
+            text-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+
+    .apexcharts-datalabel, .apexcharts-text {
+        fill: #A29BFE !important;
+    }
+
+    /* 🚩 반응형(모바일) 처리를 위한 추가 CSS */
+    .dashboard-title {
+        word-break: keep-all; /* 단어 중간에 줄바꿈 방지 */
+    }
+
+    /* 화면 너비가 600px 이하(모바일)일 때 작동 */
+    @@media (max-width: 600px) {
+        .dashboard-title {
+            font-size: 1.5rem !important; /* 모바일에서 제목 크기 축소 */
+        }
+
+        .mvp-box {
+            width: 100%; /* MVP 박스가 통째로 아래로 내려가면서 꽉 차게 */
+            justify-content: center; /* 텍스트 중앙 정렬 */
+            padding: 12px !important;
+        }
+
+        .mvp-text, .mvp-score {
+            font-size: 1.2rem !important; /* MVP 텍스트 크기도 폰에 맞게 살짝 축소 */
+        }
+    }
+</style>
+
+@code {
+    public class MemberContribution
+    {
+        [JsonPropertyName("adventure_id")] public long AdventureId { get; set; }
+        [JsonPropertyName("adventure_name")] public string AdventureName { get; set; } = "";
+
+        [JsonPropertyName("attendance_rate")] public double AttendanceRate { get; set; }        // 성실도
+        [JsonPropertyName("recent_heat")] public double RecentForm { get; set; }                // 최근 활동
+        [JsonPropertyName("labor_supply")] public double LaborContribution { get; set; }        // 노동 기여
+        [JsonPropertyName("roster_mobilization")] public double MobilizationEfficiency { get; set; } // 동원 효율
+        [JsonPropertyName("elite_dedication")] public double EliteDedication { get; set; }      // 본캐 헌신
+        [JsonPropertyName("absolute_power")] public double AbsolutePower { get; set; }          // 절대 무력
+        [JsonPropertyName("total_score")] public double TotalScore { get; set; }                // 총합 기여도
+
+        [JsonPropertyName("personalized_mentions")] public List<string> Mentions { get; set; } = new();
+    }
+
+    public record RadarPoint(string Label, double Value);
+    private List<MemberContribution> _members = new();
+    private MemberContribution? _selectedMember;
+    private MemberContribution? _topMember;
+    private List<RadarPoint> _radarData = new();
+    private ApexChartOptions<RadarPoint> _chartOptions = new();
+    private ApexChart<RadarPoint>? _chart;
+    private bool _isLoaded = false;
+
+    // 검색 컨트롤 바인딩 변수 추가
+    private string _searchKeyword = "";
+    private DateTime? _searchStartDate = DateTime.Today.AddMonths(-1); // 기본값: 1달 전
+    private DateTime? _searchEndDate = DateTime.Today;                 // 기본값: 오늘
+    private bool _isExpanded = true;
+    protected override async Task OnInitializedAsync()
+    {
+        _chartOptions.Theme = new Theme { Mode = Mode.Dark };
+        _chartOptions.Chart = new ApexCharts.Chart { Toolbar = new ApexCharts.Toolbar { Show = false }, Background = "transparent" };
+        _chartOptions.Yaxis = new List<ApexCharts.YAxis> { new ApexCharts.YAxis { Min = 0, Max = 100, Show = false } };
+        _chartOptions.Stroke = new ApexCharts.Stroke { Width = 3, Colors = new List<string> { "#A29BFE" } };
+        _chartOptions.Fill = new ApexCharts.Fill { Opacity = 0.4, Colors = new List<string> { "#A29BFE" } };
+        _chartOptions.Markers = new ApexCharts.Markers { Size = 5, Colors = new List<string> { "#A29BFE" }, StrokeColors = new List<string> { "#ffffff" } };
+
+        await SearchData();
+    }
+
+    private async Task SelectMember(MemberContribution member)
+    {
+        if (member == null) return;
+
+        _selectedMember = member;
+
+        _radarData = new List<RadarPoint> {
+            new("참여점수", member.AttendanceRate),
+            new("최근활동", member.RecentForm),
+            new("공대기여", member.LaborContribution),
+            new("동원효율", member.MobilizationEfficiency),
+            new("본캐헌신", member.EliteDedication),
+            new("절대무력", member.AbsolutePower)
+        };
+
+        if (_chart != null)
+        {
+            await _chart.UpdateSeriesAsync(true);
+        }
+        StateHasChanged();
+    }
+
+    private string GetMetricDescription(string? metricName)
+    {
+        return metricName switch
+        {
+            "참여점수" => "공대 누적 출석률",
+            "최근활동" => "최근 4주 활동 폼",
+            "공대기여" => "공대 지원율",
+            "동원효율" => "모험단 캐릭 풀 대비 공대 참여 비율",
+            "본캐헌신" => "에이스급(본캐) 투입 여부",
+            "절대무력" => "참여 캐릭 길드 내 스펙 순위",
+            _ => ""
+        };
+    }
+
+    // 🚩 기간 설정 버튼 로직
+    private async Task SetDateRange(int? months)
+    {
+        if (months.HasValue)
+        {
+            _searchEndDate = DateTime.Today;
+            _searchStartDate = DateTime.Today.AddMonths(-months.Value);
+        }
+        else
+        {
+            _searchStartDate = null;
+            _searchEndDate = null;
+        }
+        // 버튼 누르면 즉시 검색되도록 처리
+        await SearchData();
+    }
+
+    // 🚩 실제 Supabase DB 연결 및 검색 처리 로직
+    private async Task SearchData()
+    {
+        _isLoaded = false;
+        StateHasChanged();
+
+        try
+        {
+            // 파라미터 딕셔너리 구성 (p_start_date, p_end_date)
+            var parameters = new Dictionary<string, object>();
+            if (_searchStartDate.HasValue)
+                parameters.Add("p_start_date", _searchStartDate.Value.ToString("yyyy-MM-dd"));
+
+            if (_searchEndDate.HasValue)
+                parameters.Add("p_end_date", _searchEndDate.Value.ToString("yyyy-MM-dd"));
+
+            // Supabase RPC 호출
+            var response = await SupaClient.Rpc("get_final_member_contribution_metrics", parameters);
+
+            if (response != null && !string.IsNullOrEmpty(response.Content))
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var allMembers = JsonSerializer.Deserialize<List<MemberContribution>>(response.Content, options) ?? new();
+
+                // 모험단 이름 필터링 (클라이언트 단 처리)
+                if (!string.IsNullOrWhiteSpace(_searchKeyword))
+                {
+                    _members = allMembers.Where(m => m.AdventureName.Contains(_searchKeyword, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+                else
+                {
+                    _members = allMembers;
+                }
+
+                if (_members.Any())
+                {
+                    _members = _members.OrderByDescending(m => m.TotalScore).ToList();
+                    _topMember = _members.FirstOrDefault();
+                    if (_topMember != null) await SelectMember(_topMember);
+                }
+                else
+                {
+                    _topMember = null;
+                    _selectedMember = null;
+                    _radarData.Clear();
+                    if (_chart != null) await _chart.UpdateSeriesAsync(true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"데이터 로드 실패: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isLoaded = true;
+            StateHasChanged();
+        }
+    }
+}

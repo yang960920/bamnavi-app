@@ -1,0 +1,426 @@
+﻿@page "/admin/raids"
+@using SSM.Models
+@using SSM.Services
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client Supabase
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 전용 글래스 패널 */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 12px !important;
+        color: white !important;
+    }
+
+    /* 🚩 슬림 연공 뱃지 */
+    .yeon-badge-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 6px;
+        height: 18px;
+        border-radius: 4px;
+        font-weight: 900;
+        font-size: 0.7rem;
+        margin-left: 8px;
+        background: rgba(162, 155, 254, 0.15);
+        color: #A29BFE;
+        border: 1px solid rgba(162, 155, 254, 0.3);
+        vertical-align: middle;
+    }
+
+    .bundle-config-box {
+        background: rgba(162, 155, 254, 0.05) !important;
+        border: 1px dashed rgba(162, 155, 254, 0.3) !important;
+        border-radius: 12px;
+        padding: 20px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* 🚩 테이블 디자인 정문화 */
+    .mud-table-head .mud-table-cell {
+        background-color: rgba(30, 30, 45, 0.9) !important;
+        border-bottom: 2px solid rgba(162, 155, 254, 0.2) !important;
+    }
+
+        .mud-table-head .mud-table-cell .mud-table-cell-content {
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+        }
+
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.2) !important;
+        color: #FFFFFF !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+        padding: 8px 12px !important;
+    }
+
+    .btn-admin-save {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900 !important;
+    }
+
+    .description-truncate {
+        max-width: 250px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.8rem;
+    }
+
+    .action-stack {
+        display: flex;
+        gap: 4px;
+        justify-content: center;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    @if (_isInitialized && AppState.IsAdmin)
+    {
+        <MudPaper Class="pa-5 mb-6 d-flex align-center glass-panel" Elevation="0">
+            <MudIcon Icon="@Icons.Material.Filled.AdminPanelSettings" Style="color: #A29BFE;" Size="Size.Large" Class="mr-4" />
+            <MudText Typo="Typo.h5" Style="color: white; font-weight: 900; letter-spacing: 1px;">공대 통합 관리자</MudText>
+        </MudPaper>
+
+        @* --- 상단 등록/수정 폼 --- *@
+        <MudPaper Class="pa-8 mb-8 glass-panel" Elevation="0" Style="@(isEditMode ? "border-top: 4px solid #ff9800;" : "border-top: 4px solid #A29BFE;")">
+            <MudText Typo="Typo.subtitle1" Class="mb-6" Style="color:rgba(255,255,255,0.7);"><b>@(isEditMode ? "📝 선택 공대 정보 수정" : "✨ 신규 연공 모집 등록")</b></MudText>
+            <MudGrid Spacing="3" Class="align-center">
+                <MudItem xs="12" sm="8">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="RaidMeta" Label="레이드 종류" Value="selectedMeta" ValueChanged="OnRaidMetaChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="isEditMode">
+                                @foreach (var meta in raidMetas.Where(x => x.IsActive))
+                                {
+                                    <MudSelectItem Value="@meta">@meta.RaidName</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudDatePicker Label="출발 날짜" @bind-Date="newDate" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudSelect T="int" Label="시" @bind-Value="selectedHour" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                @for (int i = 0; i < 24; i++)
+                                {
+                                    var h = i;
+                                    <MudSelectItem Value="@h">@($"{h:D2}시")</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudSelect T="int" Label="분" @bind-Value="selectedMinute" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                @for (int i = 0; i < 60; i += 5)
+                                {
+                                    var m = i;
+                                    <MudSelectItem Value="@m">@($"{m:D2}분")</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudNumericField @bind-Value="maxDealer" Label="총 딜러 모집" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudNumericField @bind-Value="maxBuffer" Label="총 버퍼 모집" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" />
+                        </MudItem>
+                    </MudGrid>
+                </MudItem>
+
+                <MudItem xs="12" sm="4">
+                    <div class="bundle-config-box">
+                        <MudText Typo="Typo.body2" Style="color: #A29BFE; font-weight: 900;" Class="mb-2">연공 설정</MudText>
+                        <MudNumericField T="int" Value="bundleSize" ValueChanged="@((int s) => OnBundleSizeChanged(s))" Label="연공 횟수" Variant="Variant.Filled" Min="1" Margin="Margin.Dense" Disabled="isEditMode" style="max-width:120px; text-align:center;" />
+                        <MudText Typo="Typo.caption" Style="color:rgba(255,255,255,0.4);" Class="mt-2">딜 @maxDealer / 벞 @maxBuffer</MudText>
+                        @if (isEditMode)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning" Style="font-size:0.65rem;">기수 변경은 삭제 후 재등록 바랍니다.</MudText>
+                        }
+                    </div>
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="newDesc" Label="공대 상세 설명 (비고)" Variant="Variant.Outlined" Lines="2" />
+                </MudItem>
+                <MudItem xs="12" Class="d-flex justify-end gap-3 mt-2">
+                    @if (isEditMode)
+                    {
+                        <MudButton Variant="Variant.Text" Style="color:white;" OnClick="CancelEdit">수정 취소</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="UpdateRaid">수정 완료</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Filled" Class="btn-admin-save px-10" OnClick="CreateRaid">공대 등록하기</MudButton>
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-0">
+            <MudTabPanel Text="모집 중" Icon="@Icons.Material.Filled.Campaign">
+                <MudPaper Elevation="0" Class="glass-panel mt-4" style="overflow: hidden;">
+                    <MudTable Items="@_openRaids" Hover="true" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>레이드명</MudTh>
+                            <MudTh>설명</MudTh>
+                            <MudTh Style="text-align:center">출발 일시</MudTh>
+                            <MudTh Style="text-align:center">모집 인원</MudTh>
+                            <MudTh Style="text-align:center">관리</MudTh>
+                        </HeaderContent>
+                        <RowTemplate Context="raidContext">
+                            <MudTd>
+                                <b>@GetRaidName(raidContext.RaidMetaId)</b>
+                                @if (raidContext.BundleSize > 1)
+                                {
+                                    <span class="yeon-badge-tag">@raidContext.BundleSize 연공</span>
+                                }
+                            </MudTd>
+                            <MudTd><div class="description-truncate">@raidContext.Description</div></MudTd>
+                            <MudTd Style="text-align:center">@raidContext.RaidDate.ToString("MM-dd") | <b style="color:#A29BFE;">@raidContext.RaidTime.ToString(@"hh\:mm")</b></MudTd>
+                            <MudTd Style="text-align:center">딜 @raidContext.MaxDealer / 법 @raidContext.MaxBuffer</MudTd>
+                            <MudTd>
+                                <div class="action-stack">
+                                    @* 🚩 복구 포인트: MudBadge를 사용하여 미배정 인원수 표기 *@
+                                    <MudBadge Content="@GetUnassignedCount(raidContext.Id)" Color="Color.Error" Overlap="true" Visible="@(GetUnassignedCount(raidContext.Id) > 0)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Groups" Color="Color.Info" Size="Size.Small" OnClick="@(() => NavManager.NavigateTo($"/raids/organize/{raidContext.Id}"))" />
+                                    </MudBadge>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Lock" Color="Color.Primary" Size="Size.Small" OnClick="@(() => ToggleRaidStatus(raidContext, true))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Warning" Size="Size.Small" OnClick="@(() => PrepareEdit(raidContext))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="@(() => DeleteRaid(raidContext))" />
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            </MudTabPanel>
+
+            <MudTabPanel Text="모집 마감" Icon="@Icons.Material.Filled.LockClock">
+                <MudPaper Elevation="0" Class="glass-panel mt-4" style="overflow: hidden;">
+                    <MudTable Items="@_closedUpcomingRaids" Hover="true" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>레이드명</MudTh>
+                            <MudTh Style="text-align:center">출발 일시</MudTh>
+                            <MudTh Style="text-align:center">관리</MudTh>
+                        </HeaderContent>
+                        <RowTemplate Context="raidContext">
+                            <MudTd>
+                                <b>@GetRaidName(raidContext.RaidMetaId)</b>
+                                @if (raidContext.BundleSize > 1)
+                                {
+                                    <span class="yeon-badge-tag">@raidContext.BundleSize 연공</span>
+                                }
+                            </MudTd>
+                            <MudTd Style="text-align:center">@raidContext.RaidDate.ToString("MM-dd") | @raidContext.RaidTime.ToString(@"hh\:mm")</MudTd>
+                            <MudTd>
+                                <div class="action-stack">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Groups" Color="Color.Info" Size="Size.Small" OnClick="@(() => NavManager.NavigateTo($"/raids/organize/{raidContext.Id}"))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.LockOpen" Color="Color.Success" Size="Size.Small" OnClick="@(() => ToggleRaidStatus(raidContext, false))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="@(() => DeleteRaid(raidContext))" />
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            </MudTabPanel>
+
+            <MudTabPanel Text="종료 내역" Icon="@Icons.Material.Filled.History">
+                <MudPaper Elevation="0" Class="glass-panel mt-4" style="overflow: hidden;">
+                    <MudTable Items="@_pastRaids" Hover="true" Dense="true" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>레이드명</MudTh>
+                            <MudTh Style="text-align:center">완료 일자</MudTh>
+                            <MudTh Style="text-align:center">관리</MudTh>
+                        </HeaderContent>
+                        <RowTemplate Context="raidContext">
+                            <MudTd>
+                                @GetRaidName(raidContext.RaidMetaId)
+                                @if (raidContext.BundleSize > 1)
+                                {
+                                    <span class="yeon-badge-tag">@raidContext.BundleSize 연공</span>
+                                }
+                            </MudTd>
+                            <MudTd Style="text-align:center">@raidContext.RaidDate.ToString("yyyy-MM-dd")</MudTd>
+                            <MudTd>
+                                <div class="action-stack">
+                                    <MudIconButton Icon="@Icons.Material.Filled.ManageSearch" Color="Color.Info" Size="Size.Small" OnClick="@(() => NavManager.NavigateTo($"/raids/organize/{raidContext.Id}"))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" OnClick="@(() => DeleteRaid(raidContext))" />
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent><MudTablePager /></PagerContent>
+                    </MudTable>
+                </MudPaper>
+            </MudTabPanel>
+        </MudTabs>
+    }
+</MudContainer>
+
+@code {
+    private List<RaidMeta> raidMetas = new();
+    private List<RaidGroup> raidGroups = new();
+    private List<RaidApplication> allApplications = new(); // 🚩 응용 로직에서 사용
+
+    private IEnumerable<RaidGroup> _openRaids => raidGroups.Where(x => !x.IsClosed).OrderBy(x => x.RaidDate).ThenBy(x => x.RaidTime).ThenBy(x => x.CreatedAt);
+    private IEnumerable<RaidGroup> _closedUpcomingRaids => raidGroups.Where(x => x.IsClosed && x.RaidDate.Date >= DateTime.Today).OrderBy(x => x.RaidDate).ThenBy(x => x.RaidTime).ThenBy(x => x.CreatedAt);
+    private IEnumerable<RaidGroup> _pastRaids => raidGroups.Where(x => x.IsClosed && x.RaidDate.Date < DateTime.Today).OrderByDescending(x => x.RaidDate).ThenByDescending(x => x.RaidTime);
+
+    private RaidMeta? selectedMeta;
+    private DateTime? newDate = DateTime.Today;
+    private int selectedHour = 20, selectedMinute = 0;
+    private string newDesc = "";
+    private int maxDealer, maxBuffer, bundleSize = 1;
+    private bool _isInitialized = false, isEditMode = false, isLoading = false;
+    private int editingRaidId = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AppState.IsLoggedIn) await AppState.TryRestoreLogin();
+        if (!AppState.IsAdmin) { NavManager.NavigateTo("/raids"); return; }
+        await LoadMetadata(); await LoadRaids();
+        _isInitialized = true;
+    }
+
+    private void OnRaidMetaChanged(RaidMeta meta) { selectedMeta = meta; if (meta != null && !isEditMode) CalculateMaxPersonnel(); }
+    private void OnBundleSizeChanged(int size) { bundleSize = size < 1 ? 1 : size; CalculateMaxPersonnel(); }
+    private void CalculateMaxPersonnel() { if (selectedMeta != null) { maxDealer = selectedMeta.DefaultDealer * bundleSize; maxBuffer = selectedMeta.DefaultBuffer * bundleSize; } }
+    private string GetRaidName(int metaId) => raidMetas.FirstOrDefault(m => m.Id == metaId)?.RaidName ?? "알 수 없음";
+
+    private async Task LoadMetadata()
+    {
+        var result = await Supabase.From<RaidMeta>().Get();
+        raidMetas = result.Models;
+        if (raidMetas.Any(x => x.IsActive) && selectedMeta == null) OnRaidMetaChanged(raidMetas.First(x => x.IsActive));
+    }
+
+    private async Task LoadRaids()
+    {
+        try
+        {
+            isLoading = true;
+            raidGroups = (await Supabase.From<RaidGroup>().Get()).Models;
+            // 🚩 핵심: 신청 리스트를 로드해야 뱃지 숫자가 표기됨
+            allApplications = (await Supabase.From<RaidApplication>().Get()).Models;
+        }
+        finally { isLoading = false; StateHasChanged(); }
+    }
+
+    // 🚩 미배정(PartyNo == 0) 인원 계산 함수 복구
+    private int GetUnassignedCount(int raidId) => allApplications.Count(p => p.RaidId == raidId && p.PartyNo == 0);
+
+    private async Task ToggleRaidStatus(RaidGroup raid, bool shouldClose)
+    {
+        string actionText = shouldClose ? "마감" : "재개";
+        string subText = shouldClose ? "\n(마감 시 미배정 신청 인원은 모두 자동 삭제됩니다.)" : "";
+
+        if (await DialogService.ShowMessageBox("상태 변경", $"이 공대 모집을 {actionText}하시겠습니까? {subText}", actionText, "취소") == true)
+        {
+            try
+            {
+                isLoading = true;
+
+                // 1. 공대 상태 업데이트
+                raid.IsClosed = shouldClose;
+                await Supabase.From<RaidGroup>().Update(raid);
+
+                // 🚩 2. [핵심 로직] 마감 시 미배정 신청자(PartyNo == 0)들 일괄 삭제
+                if (shouldClose)
+                {
+                    // 현재 레이드에 신청한 인원 중 파티 번호가 0인 데이터들만 타겟팅
+                    await Supabase.From<RaidApplication>()
+                        .Where(a => a.RaidId == raid.Id)
+                        .Where(a => a.PartyNo == 0)
+                        .Delete();
+                }
+
+                Snackbar.Add($"모집이 {actionText}되었습니다.", Severity.Success);
+                await LoadRaids(); // 리스트 새로고침 (뱃지 숫자 등 갱신)
+            }
+            catch (Exception ex)
+            {
+                await DialogService.ShowMessageBox("오류", $"처리에 실패했습니다: {ex.Message}");
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+    private void PrepareEdit(RaidGroup raid)
+    {
+        isEditMode = true; editingRaidId = raid.Id;
+        selectedMeta = raidMetas.FirstOrDefault(m => m.Id == raid.RaidMetaId);
+        newDate = raid.RaidDate; selectedHour = raid.RaidTime.Hours; selectedMinute = raid.RaidTime.Minutes;
+        newDesc = raid.Description ?? ""; maxDealer = raid.MaxDealer; maxBuffer = raid.MaxBuffer; bundleSize = raid.BundleSize;
+        JSRuntime.InvokeVoidAsync("window.scrollTo", 0, 0);
+    }
+
+    private void CancelEdit() { isEditMode = false; editingRaidId = 0; newDesc = ""; bundleSize = 1; OnRaidMetaChanged(raidMetas.FirstOrDefault(x => x.IsActive)); }
+
+    private async Task UpdateRaid()
+    {
+        if (isLoading) return;
+        try
+        {
+            isLoading = true;
+            var targetRaid = raidGroups.FirstOrDefault(x => x.Id == editingRaidId);
+            if (targetRaid == null) return;
+            targetRaid.RaidMetaId = selectedMeta?.Id ?? 0;
+            targetRaid.RaidDate = (newDate ?? DateTime.Today).Date;
+            targetRaid.RaidTime = new TimeSpan(selectedHour, selectedMinute, 0);
+            targetRaid.MaxDealer = maxDealer; targetRaid.MaxBuffer = maxBuffer;
+            targetRaid.Description = newDesc; targetRaid.IsBundle = bundleSize > 1; targetRaid.BundleSize = bundleSize;
+            await Supabase.From<RaidGroup>().Update(targetRaid);
+            Snackbar.Add("수정 완료", Severity.Success); CancelEdit(); await LoadRaids();
+        }
+        finally { isLoading = false; StateHasChanged(); }
+    }
+
+    private async Task CreateRaid()
+    {
+        if (isLoading || selectedMeta == null) return;
+        try
+        {
+            isLoading = true;
+            var newRaid = new RaidGroup
+                {
+                    RaidMetaId = selectedMeta.Id,
+                    RaidDate = (newDate ?? DateTime.Today).Date,
+                    RaidTime = new TimeSpan(selectedHour, selectedMinute, 0),
+                    LeaderId = AppState.CurrentUserId,
+                    Description = newDesc,
+                    MaxDealer = maxDealer,
+                    MaxBuffer = maxBuffer,
+                    IsBundle = bundleSize > 1,
+                    BundleSize = bundleSize,
+                    CreatedAt = DateTimeOffset.Now
+                };
+            await Supabase.From<RaidGroup>().Insert(newRaid);
+            Snackbar.Add("공대 등록 완료", Severity.Success); newDesc = ""; await LoadRaids();
+        }
+        finally { isLoading = false; StateHasChanged(); }
+    }
+
+    private async Task DeleteRaid(RaidGroup raid)
+    {
+        if (await DialogService.ShowMessageBox("삭제 확인", "정말 삭제하시겠습니까?", "삭제", "취소") == true)
+        { await Supabase.From<RaidGroup>().Delete(raid); await LoadRaids(); }
+    }
+}

@@ -1,0 +1,172 @@
+﻿@page "/"
+@page "/login"
+@page "/index.html"
+@using SSM.Models
+@using SSM.Services
+@inject Supabase.Client Supabase
+@inject NavigationManager NavManager
+@inject IDialogService DialogService
+@inject AppState AppState
+@inject IJSRuntime JSRuntime
+
+<style>
+    /* 📱 전체 가로 스크롤 방지 */
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 전용 가독성 강화 유리 효과 (사용자 지침 반영) */
+    .login-glass-card {
+        /* 배경 불투명도 70% + 진한 블랙 네이비 */
+        background: rgba(15, 15, 30, 0.7) !important;
+        /* 블러 강도 25px로 강화하여 뒷배경 간섭 완벽 차단 */
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 🦋 로고 나비 - 사용자님이 원하신 원본 색상 로직 적용 */
+    .login-logo {
+        font-size: 4rem;
+        /* 원본 코드의 보라색 필터값을 그대로 유지 */
+        filter: sepia(1) saturate(1.5) hue-rotate(225deg) brightness(1.2) drop-shadow(0 0 15px #A29BFE);
+        margin-bottom: 5px;
+        display: inline-block;
+        user-select: none;
+    }
+
+    /* 입력창 디자인 보정 (가독성 강화) */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important; /* 연보라색 라벨 */
+        font-weight: 600;
+    }
+
+    .mud-input-root-outlined {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+    }
+
+    /* 포커스 시 연보라 광채 */
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+        box-shadow: 0 0 12px rgba(162, 155, 254, 0.3);
+    }
+
+    /* 로그인 버튼 스타일 */
+    .btn-login-night {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        height: 55px;
+        font-weight: 900 !important;
+        font-size: 1.1rem !important;
+        letter-spacing: 2px;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3) !important;
+    }
+
+    .register-link {
+        color: #A29BFE !important;
+        text-decoration: none;
+        font-weight: 900;
+    }
+
+        .register-link:hover {
+            text-decoration: underline;
+        }
+
+    .text-shadow-strong {
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <div class="d-flex flex-column align-center mb-8">
+        <span class="login-logo">🦋</span>
+        <MudText Typo="Typo.h3" Style="color: white; font-weight: 900; letter-spacing: 4px;" Class="text-shadow-strong">밤나비</MudText>
+    </div>
+
+    <MudPaper Class="pa-10 login-glass-card" Elevation="0">
+        <MudText Typo="Typo.h5" Align="Align.Center" Style="color: white; font-weight: bold;" Class="mb-10 text-shadow-strong">🔐 LOGIN</MudText>
+
+        <MudForm @bind-IsValid="@success">
+            <MudTextField T="string" Label="모험단명" Required="true"
+                          @bind-Value="inputName"
+                          Variant="Variant.Outlined" Class="mb-6"
+                          OnKeyDown="EnterKeyCheck"
+                          AutoFocus="true" />
+
+            <MudTextField @bind-Value="inputPw"
+                          Label="비밀번호"
+                          Variant="Variant.Outlined"
+                          InputType="@(isShowPassword ? InputType.Text : InputType.Password)"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@(isShowPassword ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                          OnAdornmentClick="TogglePasswordVisibility"
+                          OnKeyDown="EnterKeyCheck"
+                          Class="mb-10" />
+
+            <MudButton Variant="Variant.Filled"
+                       Class="btn-login-night"
+                       FullWidth="true"
+                       OnClick="DoLogin" Disabled="@(!success)">
+                로그인
+            </MudButton>
+        </MudForm>
+
+        <div class="mt-10 d-flex justify-center">
+            <MudText Style="color: #8E9AAF; font-size: 0.95rem;">
+                계정이 없으신가요? <a href="/register" class="register-link ml-2">모험단 등록</a>
+            </MudText>
+        </div>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    bool success;
+    string inputName = "";
+    string inputPw = "";
+    bool isShowPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AppState.IsLoggedIn) { NavManager.NavigateTo("/my-raids"); return; }
+        if (await AppState.TryRestoreLogin()) { NavManager.NavigateTo("/my-raids"); }
+    }
+
+    void TogglePasswordVisibility() => isShowPassword = !isShowPassword;
+
+    private async Task EnterKeyCheck(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(inputName) && !string.IsNullOrWhiteSpace(inputPw))
+        {
+            await DoLogin();
+        }
+    }
+
+    private async Task DoLogin()
+    {
+        try
+        {
+            var result = await Supabase.From<Adventure>()
+                                       .Where(x => x.AdventureName == inputName)
+                                       .Where(x => x.Password == inputPw)
+                                       .Get();
+            var user = result.Models.FirstOrDefault();
+            if (user != null)
+            {
+                AppState.SetLogin(user.Id, user.AdventureName, user.IsAdmin);
+                await AppState.PersistLogin();
+                NavManager.NavigateTo("/characters");
+            }
+            else
+            {
+                await DialogService.ShowMessageBox("로그인 실패", "정보가 일치하지 않습니다.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await DialogService.ShowMessageBox("오류 발생", ex.Message);
+        }
+    }
+}

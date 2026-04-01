@@ -1,0 +1,239 @@
+﻿@page "/admin/raids/meta"
+@using SSM.Models
+@using SSM.Services
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject Supabase.Client SupaClient
+@inject AppState AppState
+@inject IDialogService DialogService
+@inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
+
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 표준 유리 효과 카드 */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 📊 데이터 테이블 투명화 스타일 */
+    .fixed-grid {
+        background: transparent !important;
+    }
+
+    .mud-table-head .mud-table-cell {
+        background-color: rgba(45, 45, 58, 0.85) !important;
+        border-bottom: 2px solid rgba(162, 155, 254, 0.3) !important;
+    }
+
+        .mud-table-head .mud-table-cell .mud-table-cell-content {
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+            text-shadow: 1px 1px 2px black;
+        }
+
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        color: #FFFFFF !important;
+        border-bottom: 4px solid rgba(15, 15, 30, 0.8) !important;
+    }
+
+    /* 🛠️ 입력창 및 버튼 테마 일치 */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-input-root-outlined {
+        background: rgba(0, 0, 0, 0.3) !important;
+        color: white !important;
+    }
+
+    .mud-input-outlined.mud-input-outlined-border.mud-focus-field {
+        border-color: #A29BFE !important;
+    }
+
+    .btn-admin-save {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900 !important;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4) !important;
+    }
+
+    /* 컬러 포인트 */
+    .text-dealer {
+        color: #A29BFE !important;
+        font-weight: 900;
+    }
+
+    .text-support {
+        color: #FDA7DF !important;
+        font-weight: 900;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-6">
+    @if (_isInitialized && AppState.IsAdmin)
+    {
+        @* 상단 헤더 *@
+        <MudPaper Class="pa-6 mb-6 d-flex align-center glass-panel" Elevation="0">
+            <MudIcon Icon="@Icons.Material.Filled.Architecture" Style="color: #A29BFE; filter: drop-shadow(0 0 8px #A29BFE);" Size="Size.Large" Class="mr-4" />
+            <div>
+                <MudText Typo="Typo.h5" Style="color: white; font-weight: 900;">레이드 종류 관리</MudText>
+            </div>
+        </MudPaper>
+
+        @* --- [1] 신규 등록 섹션 --- *@
+        <MudPaper Class="pa-8 mb-8 glass-panel" Elevation="0">
+            <MudText Typo="Typo.subtitle2" Style="color: #A29BFE; font-weight: 900;" Class="mb-6">✨ 새 레이드 규격 등록</MudText>
+            <MudGrid Spacing="3" Class="align-center">
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="newName" Label="레이드 이름" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="예: 안개신" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudNumericField @bind-Value="maxPlayers" Label="총 인원" Variant="Variant.Outlined" Margin="Margin.Dense" Min="1" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <div class="d-flex align-center justify-center" style="height: 40px;">
+                        <MudCheckBox @bind-Value="isActive" Label="활성화" Color="Color.Primary" Dense="true" />
+                    </div>
+                </MudItem>
+                <MudItem xs="6">
+                    <MudNumericField @bind-Value="defDealer" Label="기본 딜러 수" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudNumericField @bind-Value="defBuffer" Label="기본 버퍼 수" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" />
+                </MudItem>
+                <MudItem xs="12" Class="d-flex justify-end">
+                    <MudButton Variant="Variant.Filled" Class="btn-admin-save px-8" OnClick="SaveMeta">규격 저장하기</MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* --- [2] 규격 목록 테이블 --- *@
+        <MudPaper Elevation="0" Class="glass-panel" style="overflow: hidden;">
+            <MudTable Items="@metaList" Hover="true" Dense="true" Bordered="false" Elevation="0" Class="fixed-grid">
+                <HeaderContent>
+                    <MudTh Style="text-align: center;">레이드명</MudTh>
+                    <MudTh Style="text-align: center;">총원</MudTh>
+                    <MudTh Style="text-align: center;">기본 구성</MudTh>
+                    <MudTh Style="text-align: center;">상태</MudTh>
+                    <MudTh Style="text-align: center;">설정</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="이름" Style="text-align: center;"><b>@context.RaidName</b></MudTd>
+                    <MudTd DataLabel="총원" Style="text-align: center;">@context.MaxPlayers 인</MudTd>
+                    <MudTd DataLabel="구성" Style="text-align: center;">
+                        <span class="text-dealer">딜러 @context.DefaultDealer</span>
+                        <span class="mx-2" style="color:rgba(255,255,255,0.2)">|</span>
+                        <span class="text-support">버퍼 @context.DefaultBuffer</span>
+                    </MudTd>
+                    <MudTd DataLabel="상태" Style="text-align: center;">
+                        <div class="d-flex justify-center">
+                            <MudChip T="string" Color="@(context.IsActive ? Color.Success : Color.Error)" Size="Size.Small" Variant="Variant.Filled" Style="font-weight:900;">
+                                @(context.IsActive ? "사용 중" : "미사용")
+                            </MudChip>
+                        </div>
+                    </MudTd>
+                    <MudTd DataLabel="작업" Style="text-align: center;">
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Filled"
+                                   Color="@(context.IsActive ? Color.Default : Color.Info)"
+                                   Style="@(context.IsActive ? "background: rgba(255,255,255,0.1); color: white;" : "")"
+                                   StartIcon="@(context.IsActive ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                   OnClick="@(() => ToggleMetaStatus(context))">
+                            @(context.IsActive ? "숨기기" : "표시하기")
+                        </MudButton>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+    else
+    {
+        <div class="d-flex flex-column align-center justify-center mt-10">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Class="mt-4" Style="color:rgba(255,255,255,0.5)">보안 정책 확인 중...</MudText>
+        </div>
+    }
+</MudContainer>
+
+@code {
+    private List<RaidMeta> metaList = new();
+    private string newName = "";
+    private int maxPlayers = 12;
+    private int defDealer = 9;
+    private int defBuffer = 3;
+    private bool isActive = true;
+    private bool _isInitialized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AppState.IsLoggedIn) await AppState.TryRestoreLogin();
+        if (!AppState.IsAdmin) { NavManager.NavigateTo("/raids"); return; }
+        await LoadMetas();
+        _isInitialized = true;
+    }
+
+    private async Task LoadMetas()
+    {
+        try
+        {
+            var result = await SupaClient.From<RaidMeta>().Order("id", Ordering.Ascending).Get();
+            metaList = result.Models;
+        }
+        catch (Exception ex) { await DialogService.ShowMessageBox("오류", $"데이터 로드 실패: {ex.Message}"); }
+    }
+
+    private async Task SaveMeta()
+    {
+        if (string.IsNullOrWhiteSpace(newName)) return;
+        if (defDealer + defBuffer != maxPlayers)
+        {
+            await DialogService.ShowMessageBox("경고", "기본 구성 인원의 합이 총 인원과 일치해야 합니다.");
+            return;
+        }
+
+        try
+        {
+            var meta = new RaidMeta
+                {
+                    RaidName = newName,
+                    MaxPlayers = maxPlayers,
+                    DefaultDealer = defDealer,
+                    DefaultBuffer = defBuffer,
+                    IsActive = isActive
+                };
+            await SupaClient.From<RaidMeta>().Insert(meta);
+            await LoadMetas();
+            newName = "";
+        }
+        catch (Exception ex) { await DialogService.ShowMessageBox("오류", ex.Message); }
+    }
+
+    private async Task ToggleMetaStatus(RaidMeta meta)
+    {
+        string actionName = meta.IsActive ? "비활성화" : "활성화";
+        bool? confirm = await DialogService.ShowMessageBox("상태 변경", $"{meta.RaidName} 규격을 {actionName} 하시겠습니까?", actionName, "취소");
+
+        if (confirm == true)
+        {
+            try
+            {
+                meta.IsActive = !meta.IsActive;
+                await SupaClient.From<RaidMeta>().Update(meta);
+                await LoadMetas();
+            }
+            catch (Exception ex) { await DialogService.ShowMessageBox("오류", ex.Message); }
+        }
+    }
+}

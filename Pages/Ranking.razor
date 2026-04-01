@@ -1,0 +1,650 @@
+﻿@page "/rankings"
+@using SSM.Models
+@using SSM.Shared
+@using Supabase.Postgrest
+@inject Supabase.Client SupaClient
+@inject IDialogService DialogService
+
+<style>
+    /* --- [1. 기본 UI 및 탭 디자인 강화] --- */
+    .custom-tabs-container {
+        background-color: #f8f9fa;
+        border-radius: 16px;
+        padding: 8px;
+    }
+
+    .mud-tab {
+        color: #9e9e9e !important;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border-radius: 8px;
+        margin: 0 4px;
+        min-width: 120px;
+    }
+
+    .mud-tab-active {
+        background-color: var(--mud-palette-primary) !important;
+        color: white !important;
+        font-weight: 800 !important;
+        box-shadow: 0 4px 12px rgba(var(--mud-palette-primary-rgb), 0.3);
+    }
+
+    .mud-tabs-slider {
+        display: none !important;
+    }
+
+    /* 카드 및 리스트 스타일 */
+    .job-card {
+        transition: all 0.3s ease;
+        border-radius: 12px;
+        border: 1px solid #e0e0e0;
+        background-color: #ffffff;
+        cursor: pointer;
+    }
+
+    .dealer-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 25px rgba(3, 169, 244, 0.12) !important;
+        border-color: #03A9F4;
+    }
+
+    .buffer-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 25px rgba(76, 175, 80, 0.12) !important;
+        border-color: #4CAF50;
+    }
+
+    .nick-text {
+        color: #212121 !important;
+        font-weight: 800;
+        font-size: 1.1rem;
+    }
+
+    .crown-icon {
+        font-size: 1rem;
+        margin-right: 6px;
+        vertical-align: middle;
+    }
+
+    .spec-text {
+        font-weight: 700;
+        color: #616161;
+    }
+
+    .rank-item {
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 8px;
+        border: 1px solid #f0f0f0;
+        background: #fff;
+    }
+
+    .rank-number {
+        font-weight: 900;
+        min-width: 45px;
+        font-size: 1.2rem;
+    }
+
+    .gold-rank {
+        color: #FFD700;
+        text-shadow: 0 0 5px rgba(255,215,0,0.3);
+    }
+
+    .silver-rank {
+        color: #C0C0C0;
+    }
+
+    .bronze-rank {
+        color: #CD7F32;
+    }
+
+    .share-card {
+        background: linear-gradient(145deg, #ffffff, #f9f9f9);
+        border: 1px dashed #bdbdbd;
+        border-radius: 12px;
+    }
+
+    /* --- [2. 💻 전문 해커 HUD & 반응형 노이즈] --- */
+    .hacking-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #000;
+        z-index: 99999;
+        font-family: 'Consolas', monospace;
+        overflow: hidden;
+    }
+
+    /* 💡 [삭제 시] 진짜 TV 지지직 노이즈 */
+    .noise-erasure {
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background-image: repeating-conic-gradient(#fff 0% 12%, #000 0% 25%), repeating-conic-gradient(#555 0% 12%, #eee 0% 25%), repeating-conic-gradient(#000 0% 12%, #444 0% 25%);
+        background-size: 3px 3px, 2px 2px, 4px 4px;
+        background-blend-mode: difference;
+        opacity: 0.8;
+        filter: contrast(300%) brightness(1.5) sepia(1) hue-rotate(-50deg);
+        z-index: 100;
+        animation: analogTvStatic 0.05s infinite alternate;
+    }
+
+    /* 💡 [복구 시] 반응형 성공 HUD */
+    .recovery-hud {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 20px 40px;
+        background: #000;
+        border: 2px solid #00ff41;
+        color: #00ff41;
+        font-size: 2.2rem;
+        font-weight: 800;
+        z-index: 110;
+        letter-spacing: 3px;
+        white-space: nowrap;
+        animation: recoveryStaticOnly 1.5s forwards;
+    }
+
+    /* 📱 모바일 대응 */
+    @@media (max-width: 600px) {
+        .recovery-hud {
+            font-size: 1.2rem;
+            padding: 15px 20px;
+            letter-spacing: 1px;
+        }
+
+        .main-terminal {
+            top: 15% !important;
+            left: 5% !important;
+            width: 90% !important;
+            height: 60% !important;
+            padding: 15px !important;
+        }
+
+        .terminal-body {
+            font-size: 0.9rem !important;
+        }
+
+        .warning-popup {
+            width: 180px !important;
+            min-height: 80px !important;
+            font-size: 0.6rem !important;
+        }
+    }
+
+    .main-terminal {
+        position: absolute;
+        top: 25%;
+        left: 20%;
+        width: 45%;
+        height: 50%;
+        background: rgba(0, 0, 0, 0.98);
+        border: 2px solid #00ff41;
+        box-shadow: 0 0 40px rgba(0, 255, 65, 0.2);
+        padding: 30px;
+        z-index: 50;
+        overflow-y: auto;
+        transition: all 0.5s ease;
+    }
+
+    .terminal-erasing {
+        border-color: #ff0000 !important;
+        color: #ff0000 !important;
+    }
+
+    .warning-popup {
+        position: absolute;
+        width: 320px;
+        min-height: 120px;
+        padding: 15px;
+        background: rgba(40, 0, 0, 0.96);
+        border: 3px solid #ff0000;
+        color: #ff0000;
+        z-index: 60;
+        font-size: 0.8rem;
+    }
+
+    .resolved-popup {
+        border-color: #00ff41 !important;
+        color: #00ff41 !important;
+        background: rgba(0, 40, 0, 0.96) !important;
+    }
+
+    /* 애니메이션 키프레임 */
+    .finale-active {
+        animation: finaleHardCut var(--finale-time) steps(1) forwards;
+    }
+
+    @@keyframes analogTvStatic {
+        0% {
+            transform: translate(0, 0) scale(1);
+        }
+
+        20% {
+            transform: translate(-1.5%, 1%) scale(1.1);
+        }
+
+        40% {
+            transform: translate(1%, -1.5%) skewX(20deg);
+        }
+
+        60% {
+            transform: translate(-2%, 2%) scale(0.9) skewX(-20deg);
+        }
+
+        80% {
+            transform: translate(2%, -1%) scale(1.05);
+        }
+
+        100% {
+            transform: translate(0, 0) scale(1);
+        }
+    }
+
+    @@keyframes recoveryStaticOnly {
+        0% {
+            opacity: 0;
+        }
+
+        15% {
+            opacity: 1;
+        }
+
+        85% {
+            opacity: 1;
+        }
+
+        100% {
+            opacity: 0;
+        }
+    }
+
+    @@keyframes finaleHardCut {
+        0% {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        100% {
+            opacity: 0;
+            visibility: hidden;
+        }
+    }
+
+    @@keyframes blink {
+        0%, 100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0;
+        }
+    }
+
+    .matrix-rain {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(0deg, rgba(0,255,65,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,65,0.05) 1px, transparent 1px);
+        background-size: 20px 20px;
+        pointer-events: none;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <div class="d-flex align-center justify-space-between mb-6">
+        <div class="d-flex align-center gap-3">
+            <MudIcon Icon="@Icons.Material.Filled.EmojiEvents" Color="Color.Warning" Size="Size.Large" />
+            <MudText Typo="Typo.h4"><b>밤나비 명예의 전당</b></MudText>
+        </div>
+
+        @* 삭제/복구 버튼 *@
+        <MudButton Variant="Variant.Outlined"
+                   Color="@(isDanjooForgotten ? Color.Success : Color.Error)"
+                   OnClick="ToggleDanjooMemory"
+                   StartIcon="@(isDanjooForgotten ? Icons.Material.Filled.RestartAlt : Icons.Material.Filled.ReportProblem)">
+            @(isDanjooForgotten ? "RESTORE" : "WARNING")
+        </MudButton>
+    </div>
+
+    @* --- [해킹 애니메이션 오버레이 영역] --- *@
+    @if (_isScenarioProcessing)
+    {
+        <div class="hacking-overlay @(_isFinale ? "finale-active" : "")"
+             style="--finale-time: @(_isRecoveryMode ? "1.6s" : "1.5s");">
+
+            @if (!_isFinale)
+            {
+                <div class="matrix-rain"></div>
+                <div class="main-terminal @(!isDanjooForgotten ? "terminal-erasing" : "")">
+                    <div style="font-size: 0.8rem; margin-bottom: 10px;">
+                        # STATUS: @(isDanjooForgotten ? "STABILIZING" : "WIPING_CORE")
+                    </div>
+                    <div class="terminal-body" style="font-size: 1.1rem;">
+                        <div style="margin-bottom: 8px; border-left: 3px solid; padding-left: 12px; color: #fff;"># @_displayScenarioText</div>
+                        <div style="margin-bottom: 8px; border-left: 3px solid; padding-left: 12px; opacity: 0.7;">> @_currentLogText</div>
+                    </div>
+                </div>
+
+                @for (int i = 1; i <= 12; i++)
+                {
+                    var index = i;
+                    var showOnErasure = !isDanjooForgotten && _stepIndex >= (index / 1.5);
+                    if (showOnErasure || isDanjooForgotten)
+                    {
+                        var isResolved = isDanjooForgotten && _stepIndex >= (index / 1.5);
+                        if (isDanjooForgotten && _stepIndex > (index / 1.5) + 2) continue;
+
+                        <div class="warning-popup @(isResolved ? "resolved-popup" : "")" style="@GetPopupStyle(index)">
+                            <div style="border-bottom: 1px solid; margin-bottom: 5px; padding-bottom: 3px;">
+                                @if (isResolved)
+                                {
+                                    <span class="ok-icon">OK</span>
+                                }
+                                else
+                                {
+                                    <span class="alert-icon">!</span>
+                                }
+                                <b>SEC_ERR: 0x@index.ToString("X2")</b>
+                            </div>
+                            <div style="font-family: monospace;">
+                                @(isResolved ? "RECOVERED" : "UNAUTHORIZED")
+                            </div>
+                        </div>
+                    }
+                }
+            }
+            else
+            {
+                @if (_isRecoveryMode)
+                {
+                    <div class="recovery-hud">RECOVERY SUCCESSFUL</div>
+                }
+                else
+                {
+                    <div class="noise-erasure"></div>
+                }
+            }
+        </div>
+    }
+
+    @* --- [메인 디자인 컨텐츠 영역] --- *@
+    <div class="custom-tabs-container mb-8 @(_isScenarioProcessing ? "blur-2xl" : "")" style="transition: filter 0.5s ease-in-out;">
+        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" Color="Color.Primary" SliderColor="Color.Transparent">
+
+            @* --- 탭 1: 직업별 랭킹 --- *@
+            <MudTabPanel Text="직업별 랭킹" Icon="@Icons.Material.Filled.Dashboard" Class="pa-6">
+                @* 딜러 섹션 *@
+                <div class="mb-10">
+                    <div class="d-flex align-center mb-5">
+                        <MudIcon Icon="@Icons.Material.Filled.LocalFireDepartment" Style="color:#03A9F4" Class="mr-2" />
+                        <MudText Typo="Typo.h5" Style="color:#03A9F4"><b>딜러 직업군</b></MudText>
+                        <MudChip T="string" Size="Size.Small" Class="ml-3" Variant="Variant.Text">클릭 시 상세 순위</MudChip>
+                    </div>
+                    <MudGrid>
+                        @foreach (var rank in _dealerJobBests)
+                        {
+                            <MudItem xs="12" sm="6" md="4" lg="3">
+                                <MudPaper Elevation="1" Class="pa-4 job-card dealer-card" @onclick="@(() => ShowJobDetails(rank.Job))">
+                                    <MudText Typo="Typo.caption" Style="color:#757575">@rank.Job</MudText>
+                                    <div class="d-flex align-center">
+                                        <span class="crown-icon">👑</span>
+                                        <MudText Typo="Typo.h6" Class="nick-text">@rank.CharName</MudText>
+                                    </div>
+                                    <MudDivider Class="my-2" />
+                                    <div class="d-flex justify-space-between align-center">
+                                        <MudText Typo="Typo.body2" Style="color:#9e9e9e">@rank.AdventureName</MudText>
+                                        <MudText Typo="Typo.body2" Class="spec-text">@FormatValue(rank)</MudText>
+                                    </div>
+                                </MudPaper>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </div>
+
+                @* 버퍼 섹션 *@
+                <div class="mb-10">
+                    <div class="d-flex align-center mb-5">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoFixHigh" Style="color:#4CAF50" Class="mr-2" />
+                        <MudText Typo="Typo.h5" Style="color:#4CAF50"><b>버퍼 직업군</b></MudText>
+                    </div>
+                    <MudGrid>
+                        @foreach (var rank in _bufferJobBests)
+                        {
+                            <MudItem xs="12" sm="6" md="4" lg="3">
+                                <MudPaper Elevation="1" Class="pa-4 job-card buffer-card" @onclick="@(() => ShowJobDetails(rank.Job))">
+                                    <MudText Typo="Typo.caption" Style="color:#757575">@rank.Job</MudText>
+                                    <div class="d-flex align-center">
+                                        <span class="crown-icon">👑</span>
+                                        <MudText Typo="Typo.h6" Class="nick-text">@rank.CharName</MudText>
+                                    </div>
+                                    <MudDivider Class="my-2" />
+                                    <div class="d-flex justify-space-between align-center">
+                                        <MudText Typo="Typo.body2" Style="color:#9e9e9e">@rank.AdventureName</MudText>
+                                        <MudText Typo="Typo.body2" Class="spec-text">@FormatValue(rank)</MudText>
+                                    </div>
+                                </MudPaper>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </div>
+            </MudTabPanel>
+
+            @* --- 탭 2: 통합 TOP 10 --- *@
+            <MudTabPanel Text="통합 TOP 10" Icon="@Icons.Material.Filled.MilitaryTech" Class="pa-6">
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <div class="d-flex align-center mb-4">
+                            <MudIcon Icon="@Icons.Material.Filled.FormatListNumbered" Style="color:#03A9F4" Class="mr-2" />
+                            <MudText Typo="Typo.h5" Style="color:#03A9F4"><b>통합 딜러 TOP 10</b></MudText>
+                        </div>
+                        @foreach (var (item, index) in _totalDealerTop10.Select((v, i) => (v, i)))
+                        {
+                            <div class="rank-item d-flex align-center justify-space-between">
+                                <div class="d-flex align-center">
+                                    <div class="rank-number @GetRankClass(index + 1)">@(GetRankDisplay(index + 1))</div>
+                                    <div class="ml-2">
+                                        <MudText Typo="Typo.body1"><b>@item.CharName</b> <small style="color:#757575">(@item.Job)</small></MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@item.AdventureName</MudText>
+                                    </div>
+                                </div>
+                                <MudText Typo="Typo.body1" Color="Color.Info"><b>@FormatValue(item)</b></MudText>
+                            </div>
+                        }
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <div class="d-flex align-center mb-4">
+                            <MudIcon Icon="@Icons.Material.Filled.FormatListNumbered" Style="color:#4CAF50" Class="mr-2" />
+                            <MudText Typo="Typo.h5" Style="color:#4CAF50"><b>통합 버퍼 TOP 10</b></MudText>
+                        </div>
+                        @foreach (var (item, index) in _totalBufferTop10.Select((v, i) => (v, i)))
+                        {
+                            <div class="rank-item d-flex align-center justify-space-between">
+                                <div class="d-flex align-center">
+                                    <div class="rank-number @GetRankClass(index + 1)">@(GetRankDisplay(index + 1))</div>
+                                    <div class="ml-2">
+                                        <MudText Typo="Typo.body1"><b>@item.CharName</b> <small style="color:#757575">(@item.Job)</small></MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@item.AdventureName</MudText>
+                                    </div>
+                                </div>
+                                <MudText Typo="Typo.body1" Color="Color.Success"><b>@FormatValue(item)</b></MudText>
+                            </div>
+                        }
+                    </MudItem>
+                </MudGrid>
+            </MudTabPanel>
+        </MudTabs>
+
+        @* 점유율 TOP 5 (하단 고정 영역) *@
+        <MudPaper Elevation="0" Class="pa-6 mt-12 mb-10 share-card">
+            <div class="d-flex align-center mb-6">
+                <MudIcon Icon="@Icons.Material.Filled.Insights" Color="Color.Info" Class="mr-2" />
+                <MudText Typo="Typo.h5"><b>명예의 전당 점유율 TOP 5</b></MudText>
+            </div>
+            <MudGrid Justify="Justify.Center">
+                @foreach (var share in _adventureShares)
+                {
+                    <MudItem xs="12" sm="4" md="2">
+                        <div class="d-flex flex-column align-center pa-2">
+                            <div class="d-flex align-center justify-center mb-1">
+                                @if (share.DisplayRank == 1)
+                                {
+                                    <span class="mr-1">👑</span> <MudText Typo="Typo.h6" Style="color:#FFD700; font-weight:900;">1위</MudText>
+                                }
+                                else if (share.DisplayRank == 2)
+                                {
+                                    <span class="mr-1">🥈</span> <MudText Typo="Typo.h6" Style="color:#C0C0C0; font-weight:900;">2위</MudText>
+                                }
+                                else if (share.DisplayRank == 3)
+                                {
+                                    <span class="mr-1">🥉</span> <MudText Typo="Typo.h6" Style="color:#CD7F32; font-weight:900;">3위</MudText>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.h6" Style="font-weight:900;">@(share.DisplayRank)위</MudText>
+                                }
+                            </div>
+                            <MudText Typo="Typo.body1" Class="mt-1 text-center"><b>@share.Name</b></MudText>
+                            <MudText Typo="Typo.h5" Color="Color.Primary" Class="mt-1"><b>@share.Count</b><small style="font-size:0.8rem; margin-left:2px;">개</small></MudText>
+                        </div>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudPaper>
+    </div>
+</MudContainer>
+
+@code {
+    private List<RankRow> _allJoinedData = new();
+    private List<RankRow> _dealerJobBests = new();
+    private List<RankRow> _bufferJobBests = new();
+    private List<RankRow> _totalDealerTop10 = new();
+    private List<RankRow> _totalBufferTop10 = new();
+    private List<ShareRow> _adventureShares = new();
+
+    private bool isDanjooForgotten = false;
+    private bool _isScenarioProcessing = false;
+    private bool _isFinale = false;
+    private bool _isRecoveryMode = false;
+    private string _displayScenarioText = "";
+    private string _currentLogText = "";
+    private int _stepIndex = 0;
+
+    public class RankRow { public string AdventureName { get; set; } = ""; public string CharName { get; set; } = ""; public string Job { get; set; } = ""; public double Spec { get; set; } public bool IsSupport { get; set; } }
+    public class ShareRow { public string Name { get; set; } = ""; public int Count { get; set; } public int DisplayRank { get; set; } }
+
+    private (string Msg, string Log, int Delay)[] _erasureSequence = {
+        ("BRUTE_FORCE", "Cracking admin...", 400), ("ACCESS_GRANTED", "Bypassing biometric...", 400), ("INJECT_WORM", "Spreading database...", 400),
+        ("OVERRIDE_0x16", "Target: DANJOO", 600), ("WIPE_MEMORY", "Deleting records...", 600), ("SHRED_LOGS", "Erasing signatures...", 400),
+        ("EXIT_SESS", "System crash.", 400), ("DISCONNECTED", "Target eliminated.", 600)
+    };
+
+    private (string Msg, string Log, int Delay)[] _recoverySequence = {
+        ("BOOT_ISO", "Loading emergency...", 400), ("FS_REPAIR", "Fixing inodes...", 400), ("DB_RESTORE", "Found fragment 0x16", 400),
+        ("SYNC_NODES", "Linking profiles...", 600), ("VALIDATE_ID", "Integrity: 100%", 600), ("RESTORE_FW", "Security ACTIVE.", 400),
+        ("STABILIZE", "Normalization...", 400), ("ONLINE", "Records sync.", 600)
+    };
+
+    protected override async Task OnInitializedAsync() => await LoadRankings();
+
+    private async Task LoadRankings()
+    {
+        var advRes = await SupaClient.From<Adventure>().Get();
+        var charRes = await SupaClient.From<Character>().Get();
+
+        if (charRes.Models != null && advRes.Models != null)
+        {
+            _allJoinedData = (from c in charRes.Models
+                              join a in advRes.Models on c.AdventureId equals a.Id
+                              select new RankRow
+                                  {
+                                      AdventureName = a.AdventureName,
+                                      CharName = c.Char_name,
+                                      Job = c.Job,
+                                      Spec = c.Spec ?? 0,
+                                      IsSupport = c.Is_Support
+                                  }).ToList();
+
+            ApplyRankingFilter();
+        }
+    }
+
+    private void ApplyRankingFilter()
+    {
+        var baseData = isDanjooForgotten ? _allJoinedData.Where(x => !x.AdventureName.Contains("단주")).ToList() : _allJoinedData;
+
+        var jobBests = baseData.GroupBy(x => x.Job).Select(g => g.OrderByDescending(x => x.Spec).First()).ToList();
+
+        var rng = new Random();
+        _dealerJobBests = jobBests.Where(x => !x.IsSupport).OrderBy(_ => rng.Next()).ToList();
+        _bufferJobBests = jobBests.Where(x => x.IsSupport).OrderBy(_ => rng.Next()).ToList();
+
+        _totalDealerTop10 = baseData.Where(x => !x.IsSupport).OrderByDescending(x => x.Spec).Take(10).ToList();
+        _totalBufferTop10 = baseData.Where(x => x.IsSupport).OrderByDescending(x => x.Spec).Take(10).ToList();
+
+        var rawShares = jobBests.GroupBy(x => x.AdventureName).Select(g => new ShareRow { Name = g.Key, Count = g.Count() }).OrderByDescending(x => x.Count).ToList();
+        int currentRank = 1; int lastCount = -1;
+        for (int i = 0; i < rawShares.Count; i++)
+        {
+            if (rawShares[i].Count != lastCount) currentRank = i + 1;
+            rawShares[i].DisplayRank = currentRank; lastCount = rawShares[i].Count;
+        }
+        _adventureShares = rawShares.Take(5).ToList();
+    }
+
+    private async Task ToggleDanjooMemory()
+    {
+        if (_isScenarioProcessing) return;
+        _isScenarioProcessing = true;
+        _isFinale = false;
+        _isRecoveryMode = isDanjooForgotten;
+        _stepIndex = 0;
+        StateHasChanged();
+
+        var sequence = isDanjooForgotten ? _recoverySequence : _erasureSequence;
+        foreach (var step in sequence)
+        {
+            _displayScenarioText = step.Msg; _currentLogText = step.Log; _stepIndex++;
+            StateHasChanged(); await Task.Delay(step.Delay);
+        }
+
+        _isFinale = true;
+        StateHasChanged();
+        await Task.Delay(_isRecoveryMode ? 1600 : 1500);
+
+        isDanjooForgotten = !isDanjooForgotten;
+        ApplyRankingFilter();
+
+        _isScenarioProcessing = false;
+        _isFinale = false;
+        _isRecoveryMode = false;
+        StateHasChanged();
+    }
+
+    private string GetRankDisplay(int rank) => rank switch { 1 => "🥇", 2 => "🥈", 3 => "🥉", _ => $"{rank}위" };
+    private string GetRankClass(int rank) => rank switch { 1 => "gold-rank", 2 => "silver-rank", 3 => "bronze-rank", _ => "" };
+    private string GetPopupStyle(int index) => index switch { 1 => "top: 2%; left: 2%;", 2 => "top: 5%; right: 5%;", 3 => "bottom: 2%; left: 5%;", 4 => "bottom: 10%; right: 2%;", 5 => "top: 40%; left: 1%;", 6 => "top: 50%; right: 1%;", 7 => "top: 15%; left: 30%;", 8 => "bottom: 15%; left: 40%;", 9 => "top: 10%; left: 60%;", 10 => "bottom: 30%; right: 30%;", 11 => "top: 60%; left: 15%;", 12 => "top: 25%; right: 25%;", _ => "" };
+
+    private async Task ShowJobDetails(string jobName)
+    {
+        var baseData = isDanjooForgotten ? _allJoinedData.Where(x => !x.AdventureName.Contains("단주")).ToList() : _allJoinedData;
+        var top3 = baseData.Where(x => x.Job == jobName).OrderByDescending(x => x.Spec).Take(3).ToList();
+        var parameters = new DialogParameters { ["Top3List"] = top3, ["JobName"] = jobName };
+        await DialogService.ShowAsync<JobDetailDialog>($"{jobName} 상세 순위", parameters, new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+    }
+
+    private string FormatValue(RankRow row)
+    {
+        if (row.IsSupport) return row.Spec.ToString("N0");
+        double val = row.Spec; if (val < 10000) return "0";
+        long eok = (long)(val / 100000000); long man = (long)((val % 100000000) / 10000);
+        if (eok > 0 && man > 0) return $"{eok}억 {man}만";
+        if (eok > 0) return $"{eok}억"; return $"{man}만";
+    }
+}

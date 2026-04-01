@@ -1,0 +1,246 @@
+﻿@page "/admin/adventures"
+@using SSM.Models
+@using SSM.Shared
+@using SSM.Services
+@using MudBlazor
+@using Supabase.Postgrest
+@using static Supabase.Postgrest.Constants
+@inject AppState AppState
+@inject Supabase.Client SupaClient
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+<style>
+    .mud-container {
+        overflow-x: hidden !important;
+    }
+
+    /* 🚩 밤나비 표준 유리 효과 카드 */
+    .glass-panel {
+        background: rgba(15, 15, 30, 0.7) !important;
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.25) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    /* 📊 데이터 그리드 투명화 및 유리 스타일 */
+    .fixed-grid {
+        background: transparent !important;
+    }
+
+    /* 헤더 스타일 */
+    .mud-table-head .mud-table-cell {
+        background-color: rgba(45, 45, 58, 0.85) !important;
+        border-bottom: 2px solid rgba(162, 155, 254, 0.3) !important;
+    }
+
+        .mud-table-head .mud-table-cell .column-header,
+        .mud-table-head .mud-table-cell .sortable-column-header {
+            color: #A29BFE !important;
+            font-weight: 900 !important;
+            text-shadow: 1px 1px 2px black;
+            justify-content: center;
+        }
+
+    /* 데이터 본문 행 디자인: 투명 배경 + 유리 구분선 */
+    .mud-table-body .mud-table-cell {
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        color: #FFFFFF !important;
+        border-bottom: 4px solid rgba(15, 15, 30, 0.8) !important;
+        text-align: center !important;
+    }
+
+    .mud-table-row:hover .mud-table-cell {
+        background-color: rgba(162, 155, 254, 0.15) !important;
+    }
+
+    /* 🛠️ 검색창 및 경고 박스 스타일 */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important;
+        font-weight: 700;
+    }
+
+    .mud-input-root-outlined {
+        background: rgba(0, 0, 0, 0.3) !important;
+        color: white !important;
+    }
+
+    .admin-alert {
+        background: rgba(255, 152, 0, 0.05) !important;
+        border: 1px solid rgba(255, 152, 0, 0.2) !important;
+        color: #FFB74D !important;
+    }
+
+    .mud-table-pagination {
+        color: #8E9AAF !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    @* 상단 헤더 *@
+    <MudPaper Class="pa-6 mb-6 d-flex align-center glass-panel" Elevation="0">
+        <MudIcon Icon="@Icons.Material.Filled.PeopleAlt" Style="color: #A29BFE; filter: drop-shadow(0 0 8px #A29BFE);" Size="Size.Large" Class="mr-4" />
+        <div>
+            <MudText Typo="Typo.h5" Style="color: white; font-weight: 900;">길드원(모험단) 권한 관리</MudText>
+        </div>
+    </MudPaper>
+
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mb-6 admin-alert rounded-lg">
+        모험단을 삭제하면 해당 모험단에 등록된 <b>모든 캐릭터 정보가 영구적으로 삭제</b>됩니다.
+        <br /><span style="font-size: 0.8rem; opacity: 0.8;">※ 보안을 위해 관리자 계정은 직접 삭제가 불가능하도록 보호되어 있습니다.</span>
+    </MudAlert>
+
+    @* 데이터 그리드 섹션 *@
+    <MudPaper Elevation="0" Class="glass-panel" style="overflow: hidden;">
+        <MudDataGrid Items="@adventures" Hover="true" Elevation="0" Dense="true"
+                     Filterable="true" QuickFilter="@QuickFilter" Loading="@isProcessing"
+                     Class="fixed-grid">
+            <ToolBarContent>
+                <MudText Typo="Typo.h6" Style="color:white; font-weight:900;">길드원 명부</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="searchString" Placeholder="모험단명 검색..." Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-0"
+                              Style="max-width:300px; background:rgba(0,0,0,0.2);" />
+            </ToolBarContent>
+            <Columns>
+                <PropertyColumn Property="x => x.AdventureName" Title="모험단명" Sortable="true">
+                    <CellTemplate>
+                        <div class="text-center"><b>@context.Item.AdventureName</b></div>
+                    </CellTemplate>
+                </PropertyColumn>
+
+                <TemplateColumn Title="시스템 권한" SortBy="@(x => x.IsAdmin)">
+                    <CellTemplate>
+                        <div class="d-flex justify-center align-center">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                     Color="@(context.Item.IsAdmin ? Color.Primary : Color.Default)"
+                                     Style="@(context.Item.IsAdmin ? "font-weight:900;" : "background:rgba(255,255,255,0.1);")">
+                                @(context.Item.IsAdmin ? "ADMIN" : "USER")
+                            </MudChip>
+                            <MudSwitch T="bool"
+                                       Value="@context.Item.IsAdmin"
+                                       ValueChanged="@((val) => ToggleAdmin(context.Item, val))"
+                                       Color="Color.Primary" Class="ml-2" />
+                        </div>
+                    </CellTemplate>
+                </TemplateColumn>
+
+                <TemplateColumn Title="제어" Sortable="false">
+                    <CellTemplate>
+                        <div class="d-flex justify-center">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Error"
+                                       StartIcon="@Icons.Material.Filled.DeleteForever"
+                                       Size="Size.Small"
+                                       Disabled="@context.Item.IsAdmin"
+                                       OnClick="@(() => DeleteAdventure(context.Item))"
+                                       Style="@(context.Item.IsAdmin ? "" : "border-color: rgba(244, 67, 54, 0.3);")">
+                                @(context.Item.IsAdmin ? "삭제 보호됨" : "모험단 영구삭제")
+                            </MudButton>
+                        </div>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <MudDataGridPager T="Adventure" />
+            </PagerContent>
+        </MudDataGrid>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private List<Adventure> adventures = new();
+    private bool isProcessing = true;
+    private string searchString = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AppState.IsLoggedIn) await AppState.TryRestoreLogin();
+        if (!AppState.IsAdmin) { NavManager.NavigateTo("/raids"); return; }
+        await LoadAdventures();
+    }
+
+    private async Task LoadAdventures()
+    {
+        try
+        {
+            isProcessing = true;
+            var result = await SupaClient.From<Adventure>()
+                                         .Order("is_admin", Ordering.Descending)
+                                         .Order("Adventure_Name", Ordering.Ascending)
+                                         .Get();
+            adventures = result.Models;
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool QuickFilter(Adventure x)
+    {
+        if (string.IsNullOrWhiteSpace(searchString)) return true;
+        if (x.AdventureName.Contains(searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private async Task ToggleAdmin(Adventure item, bool newVal)
+    {
+        try
+        {
+            item.IsAdmin = newVal;
+            await SupaClient.From<Adventure>().Update(item);
+
+            if (item.Id == AppState.CurrentUserId)
+            {
+                AppState.UpdateAdminStatus(newVal);
+                await AppState.PersistLogin();
+            }
+
+            Snackbar.Add($"[{item.AdventureName}] 권한이 변경되었습니다.", Severity.Success);
+            await LoadAdventures();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("권한 변경 실패: " + ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteAdventure(Adventure item)
+    {
+        if (item.IsAdmin) return;
+
+        bool? confirm = await DialogService.ShowMessageBox(
+            "⚠️ 모험단 영구 삭제",
+            $"정말로 [{item.AdventureName}] 모험단을 삭제하시겠습니까? 연결된 모든 캐릭터 데이터가 자동으로 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+            yesText: "영구 삭제",
+            cancelText: "취소"
+        );
+
+        if (confirm == true)
+        {
+            try
+            {
+                isProcessing = true;
+                await SupaClient.From<Adventure>().Where(x => x.Id == item.Id).Delete();
+                Snackbar.Add($"[{item.AdventureName}] 모험단이 완전히 삭제되었습니다.", Severity.Info);
+                await LoadAdventures();
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add("삭제 중 오류 발생: " + ex.Message, Severity.Error);
+            }
+            finally
+            {
+                isProcessing = false;
+                StateHasChanged();
+            }
+        }
+    }
+}

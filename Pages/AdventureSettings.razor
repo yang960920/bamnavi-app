@@ -1,0 +1,194 @@
+﻿@page "/settings"
+@using SSM.Models
+@using SSM.Services
+@using MudBlazor
+@inject Supabase.Client Supabase
+@inject AppState AppState
+@inject IDialogService DialogService
+
+<style>
+    /* 🚩 밤나비 전용 유리 효과 패널 (가독성 강화 버전) */
+    .settings-glass-card {
+        /* 배경 불투명도를 높여 뒷배경 간섭 차단 */
+        background: rgba(15, 15, 30, 0.7) !important;
+        /* 블러 강도를 높여 글자가 선명하게 뜨도록 조절 */
+        backdrop-filter: blur(25px) saturate(150%);
+        -webkit-backdrop-filter: blur(25px) saturate(150%);
+        border: 1px solid rgba(162, 155, 254, 0.2) !important;
+        border-radius: 16px !important;
+        color: white !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    }
+
+    /* 섹션 제목 스타일 */
+    .settings-header {
+        color: #A29BFE !important;
+        font-weight: 900;
+        letter-spacing: 1px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+
+    /* 입력창 보정 */
+    .mud-input-control .mud-input-label {
+        color: #A29BFE !important; /* 가독성을 위해 더 선명한 보라색 적용 */
+        font-weight: 500;
+    }
+
+    .mud-input-root-outlined {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.2); /* 입력창 내부 반투명 배경 추가 */
+    }
+
+    .mud-helper-text {
+        color: rgba(255, 255, 255, 0.5) !important;
+    }
+
+    /* 저장 전용 그라데이션 버튼 */
+    .btn-save-settings {
+        background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%) !important;
+        color: white !important;
+        font-weight: 900 !important;
+        height: 50px;
+        box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4) !important;
+    }
+</style>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <div class="d-flex align-center mb-6">
+        <MudIcon Icon="@Icons.Material.Filled.Settings" Style="color: #A29BFE;" Class="mr-2" />
+        <MudText Typo="Typo.h5" Style="color: white; font-weight: 900; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);"><b>모험단 환경 설정</b></MudText>
+    </div>
+
+    <MudPaper Class="pa-8 settings-glass-card" Elevation="0">
+        <MudStack Spacing="6">
+            @* 1. 모험단명 변경 *@
+            <div>
+                <MudText Typo="Typo.subtitle2" Class="settings-header mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.Badge" Size="Size.Small" /> 이름 관리
+                </MudText>
+                <MudTextField @bind-Value="newName"
+                              Label="새 모험단명"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              HelperText="변경할 이름을 입력하세요." />
+            </div>
+
+            <MudDivider Style="background-color: rgba(255,255,255,0.1);" />
+
+            @* 2. 비밀번호 변경 *@
+            <div>
+                <MudText Typo="Typo.subtitle2" Class="settings-header mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.VpnKey" Size="Size.Small" /> 보안 설정
+                </MudText>
+                <MudTextField @bind-Value="newPassword"
+                              Label="새 비밀번호"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              InputType="InputType.Password"
+                              HelperText="변경할 경우에만 입력하세요." />
+                <MudTextField @bind-Value="confirmPassword"
+                              Label="새 비밀번호 확인"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              InputType="InputType.Password"
+                              Class="mt-4"
+                              HelperText="비밀번호를 한 번 더 입력하세요." />
+            </div>
+
+            <MudDivider Style="background-color: rgba(255,255,255,0.1);" />
+
+            @* 3. 인증 및 저장 *@
+            <div class="pa-4 rounded-lg" style="background: rgba(255, 107, 107, 0.1); border: 1px solid rgba(255, 107, 107, 0.2);">
+                <MudText Typo="Typo.body2" Color="Color.Error" Class="mb-3 d-flex align-center" Style="font-weight: 700;">
+                    <MudIcon Icon="@Icons.Material.Filled.GppMaybe" Size="Size.Small" Class="mr-1" />
+                    안전을 위해 현재 비밀번호를 입력하세요.
+                </MudText>
+                <MudTextField @bind-Value="currentPassword"
+                              Label="현재 비밀번호 인증"
+                              Variant="Variant.Filled"
+                              Margin="Margin.Dense"
+                              InputType="InputType.Password"
+                              Required="true" />
+            </div>
+
+            <MudButton Variant="Variant.Filled"
+                       Class="btn-save-settings mt-2"
+                       FullWidth="true"
+                       Size="Size.Large"
+                       OnClick="UpdateSettings">
+                설정 저장하기
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string newName;
+    private string newPassword;
+    private string confirmPassword;
+    private string currentPassword;
+
+    protected override void OnInitialized()
+    {
+        newName = AppState.CurrentAdventureName;
+    }
+
+    private async Task UpdateSettings()
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            await DialogService.ShowMessageBox("입력 오류", "모험단 이름은 비워둘 수 없습니다.", "확인");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentPassword))
+        {
+            await DialogService.ShowMessageBox("인증 필요", "현재 비밀번호를 입력해야 저장이 가능합니다.", "확인");
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(newPassword) && newPassword != confirmPassword)
+        {
+            await DialogService.ShowMessageBox("비밀번호 불일치", "새 비밀번호가 서로 일치하지 않습니다.", "확인");
+            return;
+        }
+
+        try
+        {
+            var result = await Supabase.From<Adventure>()
+                                       .Where(x => x.Id == AppState.CurrentUserId)
+                                       .Where(x => x.Password == currentPassword)
+                                       .Get();
+
+            var user = result.Models.FirstOrDefault();
+
+            if (user == null)
+            {
+                await DialogService.ShowMessageBox("인증 실패", "현재 비밀번호가 올바르지 않습니다.", "확인");
+                return;
+            }
+
+            user.AdventureName = newName;
+            if (!string.IsNullOrWhiteSpace(newPassword))
+            {
+                user.Password = newPassword;
+            }
+
+            await Supabase.From<Adventure>().Update(user);
+
+            AppState.UpdateAdventureName(newName);
+            currentPassword = "";
+            newPassword = "";
+            confirmPassword = "";
+
+            await DialogService.ShowMessageBox("저장 완료", "모험단 정보가 성공적으로 변경되었습니다.", "확인");
+        }
+        catch (Exception ex)
+        {
+            await DialogService.ShowMessageBox("시스템 오류", ex.Message, "확인");
+        }
+    }
+}
