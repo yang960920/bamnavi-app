@@ -1,0 +1,33 @@
+[build]
+  command = "dotnet publish -c Release -o output"
+  publish = "output/wwwroot"
+
+[[headers]]
+  for = "/_framework/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/_framework/*.dll"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+
+[[headers]]
+  for = "/_framework/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
+
+[[headers]]
+  for = "/_framework/blazor.boot.json"
+  [headers.values]
+    Content-Type = "application/json"
+
+[[headers]]
+  for = "/_framework/*.dat"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
