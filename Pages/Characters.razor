@@ -312,7 +312,7 @@
     int dundamSyncTotal = 0;
 
     // 던담 스크래핑 API URL (로컬: http://localhost:3000, 배포: Vercel URL로 변경)
-    private const string DUNDAM_API_URL = "https://dundam-scraper.vercel.app";
+    private const string DUNDAM_API_URL = "https://dundam-scraper-45xe.onrender.com";
 
     protected override async Task OnInitializedAsync()
     {
@@ -468,6 +468,12 @@
         {
             var apiUrl = $"{DUNDAM_API_URL}/api/adventure?name={Uri.EscapeDataString(adventureName)}";
             var response = await Http.GetAsync(apiUrl);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                await DialogService.ShowMessageBox("연동 대기", "현재 다른 길드원이 연동 중입니다. 잠시 후 다시 시도해주세요.", "확인");
+                return;
+            }
 
             if (!response.IsSuccessStatusCode)
             {
